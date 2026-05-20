@@ -52,18 +52,18 @@ def clean(n):
     except: return 0.0
 
 def fmt(n):
-    v = clean(n)
-    return f'£{v:,.0f}' if v else str(n)
+    v=clean(n)
+    return f'£{v:,.0f}' if v else '£0'
 
 def fmtp(n):
-    v = clean(n)
-    if v > 1: v = v/100
+    v=clean(n)
+    if v>1: v=v/100
     return f'{v:.1%}'
 
 def bar_chart(labels, values, w=100, h=44):
-    vals = [clean(v) for v in values]
-    maxv = max(vals+[1])*1.15
-    dw = Drawing(w*mm, h*mm)
+    vals=[clean(v) for v in values]
+    maxv=max(vals+[1])*1.15
+    dw=Drawing(w*mm,h*mm)
     bw=12*mm; gap=8*mm; base_y=8*mm; chart_h=(h-12)*mm
     cols=[TEAL,colors.HexColor('#0B6E60'),colors.HexColor('#084F45')]
     for i,(v,c,l) in enumerate(zip(vals,cols,labels)):
@@ -75,8 +75,8 @@ def bar_chart(labels, values, w=100, h=44):
     return dw
 
 def margin_bar(pct_val, label, color, w=65, h=10):
-    v = clean(pct_val)
-    if v > 1: v = v/100
+    v=clean(pct_val)
+    if v>1: v=v/100
     dw=Drawing(w*mm,h*mm); track_w=(w-4)*mm; fill_w=track_w*min(v,1.0)
     dw.add(Rect(2*mm,3*mm,track_w,4*mm,fillColor=BORDER,strokeColor=None,rx=2,ry=2))
     dw.add(Rect(2*mm,3*mm,fill_w,4*mm,fillColor=color,strokeColor=None,rx=2,ry=2))
@@ -121,8 +121,8 @@ def flag_card(num, body):
     return t
 
 def exp_card(lbl, q1, pct_rev, trend):
-    tc = RED_TEXT if trend=='up' else GREEN_TEXT if trend=='down' else GRAY
-    ts = '▲' if trend=='up' else '▼' if trend=='down' else '●'
+    tc=RED_TEXT if trend=='up' else GREEN_TEXT if trend=='down' else GRAY
+    ts='▲' if trend=='up' else '▼' if trend=='down' else '●'
     data=[
         [Paragraph(lbl,s('el',fontName='Helvetica-Bold',fontSize=8,textColor=NAVY,leading=11))],
         [Paragraph(fmt(q1),s('ev',fontName='Helvetica-Bold',fontSize=14,textColor=NAVY,leading=18))],
@@ -149,38 +149,29 @@ def pl_table(d):
     def cat(txt):
         return [Paragraph(txt,s('cat',fontName='Helvetica-Bold',fontSize=7.5,textColor=TEAL,leading=11)),'','','','']
 
-    feb_r=d.get('revenue_feb','0'); mar_r=d.get('revenue_mar','0'); apr_r=d.get('revenue_apr','0')
-    total_r=d.get('total_revenue','0')
-    food=d.get('food_sales','0'); drink=d.get('drink_sales','0')
-    cogs=d.get('total_cogs','0'); gp=d.get('gross_profit','0')
-    gm=d.get('gross_margin','0')
-    rent=d.get('rent','0'); wages=d.get('wages','0'); utils=d.get('utilities','0')
-    mktg=d.get('marketing','0'); misc=d.get('miscellaneous','0')
-    opex=d.get('total_opex','0'); np_=d.get('net_profit','0'); nm=d.get('net_margin','0')
-
     rows=[
         [th('',False),th('Feb'),th('Mar'),th('Apr'),th('Q1 Total')],
         cat('REVENUE'),
-        [label('Food Sales',indent=True),td('—'),td('—'),td('—'),money(food)],
-        [label('Drink Sales',indent=True),td('—'),td('—'),td('—'),money(drink)],
-        [label('Total Revenue',bold=True),money(feb_r,True),money(mar_r,True),money(apr_r,True),money(total_r,True)],
+        [label('Food Sales',indent=True),money(d.get('food_sales_feb','0')),money(d.get('food_sales_mar','0')),money(d.get('food_sales_apr','0')),money(d.get('food_sales','0'))],
+        [label('Drink Sales',indent=True),money(d.get('drink_sales_feb','0')),money(d.get('drink_sales_mar','0')),money(d.get('drink_sales_apr','0')),money(d.get('drink_sales','0'))],
+        [label('Total Revenue',bold=True),money(d.get('revenue_feb','0'),True),money(d.get('revenue_mar','0'),True),money(d.get('revenue_apr','0'),True),money(d.get('total_revenue','0'),True)],
         [Paragraph('')],'','','','',
         cat('COST OF GOODS SOLD'),
-        [label('Total COGS',bold=True),td('—'),td('—'),td('—'),money(cogs,True)],
+        [label('Total COGS',bold=True),money(d.get('cogs_feb','0'),True),money(d.get('cogs_mar','0'),True),money(d.get('cogs_apr','0'),True),money(d.get('total_cogs','0'),True)],
         [Paragraph('')],'','','','',
-        [label('GROSS PROFIT',bold=True),td('—'),td('—'),td('—'),money(gp,True)],
-        [label('Gross Margin %',sub=True),td('—'),td('—'),td('—'),td(fmtp(gm))],
+        [label('GROSS PROFIT',bold=True),money(d.get('gross_profit_feb','0'),True),money(d.get('gross_profit_mar','0'),True),money(d.get('gross_profit_apr','0'),True),money(d.get('gross_profit','0'),True)],
+        [label('Gross Margin %',sub=True),td('—'),td('—'),td('—'),td(fmtp(d.get('gross_margin','0')))],
         [Paragraph('')],'','','','',
         cat('OPERATING EXPENSES'),
-        [label('Rent & Rates',indent=True),td('—'),td('—'),td('—'),money(rent)],
-        [label('Staff Wages',indent=True),td('—'),td('—'),td('—'),money(wages)],
-        [label('Utilities',indent=True),td('—'),td('—'),td('—'),money(utils)],
-        [label('Marketing',indent=True),td('—'),td('—'),td('—'),money(mktg)],
-        [label('Miscellaneous',indent=True),td('—'),td('—'),td('—'),money(misc)],
-        [label('Total OpEx',bold=True),td('—'),td('—'),td('—'),money(opex,True)],
+        [label('Rent & Rates',indent=True),money(d.get('rent_feb','0')),money(d.get('rent_mar','0')),money(d.get('rent_apr','0')),money(d.get('rent','0'))],
+        [label('Staff Wages',indent=True),money(d.get('wages_feb','0')),money(d.get('wages_mar','0')),money(d.get('wages_apr','0')),money(d.get('wages','0'))],
+        [label('Utilities',indent=True),money(d.get('utilities_feb','0')),money(d.get('utilities_mar','0')),money(d.get('utilities_apr','0')),money(d.get('utilities','0'))],
+        [label('Marketing',indent=True),money(d.get('marketing_feb','0')),money(d.get('marketing_mar','0')),money(d.get('marketing_apr','0')),money(d.get('marketing','0'))],
+        [label('Miscellaneous',indent=True),money(d.get('misc_feb','0')),money(d.get('misc_mar','0')),money(d.get('misc_apr','0')),money(d.get('miscellaneous','0'))],
+        [label('Total OpEx',bold=True),money(d.get('opex_feb','0'),True),money(d.get('opex_mar','0'),True),money(d.get('opex_apr','0'),True),money(d.get('total_opex','0'),True)],
         [Paragraph('')],'','','','',
-        [label('NET PROFIT',bold=True),td('—'),td('—'),td('—'),money(np_,True)],
-        [label('Net Margin %',sub=True),td('—'),td('—'),td('—'),td(fmtp(nm))],
+        [label('NET PROFIT',bold=True),money(d.get('net_profit_feb','0'),True),money(d.get('net_profit_mar','0'),True),money(d.get('net_profit_apr','0'),True),money(d.get('net_profit','0'),True)],
+        [label('Net Margin %',sub=True),td(fmtp(d.get('net_margin_feb','0'))),td(fmtp(d.get('net_margin_mar','0'))),td(fmtp(d.get('net_margin_apr','0'))),td(fmtp(d.get('net_margin','0')))],
     ]
 
     cw=[60*mm,28*mm,28*mm,28*mm,28*mm]
@@ -189,14 +180,14 @@ def pl_table(d):
         ('BACKGROUND',(0,0),(-1,0),NAVY),
         ('ROWBACKGROUNDS',(0,1),(-1,-1),[WHITE,OFFWHITE]),
         ('BACKGROUND',(0,4),(-1,4),TEAL_LITE),
-        ('BACKGROUND',(0,9),(-1,9),TEAL_LITE),
-        ('BACKGROUND',(0,18),(-1,18),TEAL_LITE),
-        ('BACKGROUND',(0,20),(-1,20),colors.HexColor('#FFF7E6')),
+        ('BACKGROUND',(0,8),(-1,8),TEAL_LITE),
+        ('BACKGROUND',(0,17),(-1,17),TEAL_LITE),
+        ('BACKGROUND',(0,19),(-1,19),colors.HexColor('#FFF7E6')),
         ('LINEBELOW',(0,0),(-1,0),1,TEAL),
         ('LINEBELOW',(0,4),(-1,4),0.5,BORDER),
-        ('LINEBELOW',(0,9),(-1,9),0.5,BORDER),
-        ('LINEBELOW',(0,18),(-1,18),0.5,BORDER),
-        ('LINEBELOW',(0,20),(-1,-1),1.5,NAVY),
+        ('LINEBELOW',(0,8),(-1,8),0.5,BORDER),
+        ('LINEBELOW',(0,17),(-1,17),0.5,BORDER),
+        ('LINEBELOW',(0,19),(-1,-1),1.5,NAVY),
         ('TOPPADDING',(0,0),(-1,-1),3),('BOTTOMPADDING',(0,0),(-1,-1),3),
         ('LEFTPADDING',(0,0),(-1,-1),5),('RIGHTPADDING',(0,0),(-1,-1),5),
         ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
@@ -244,15 +235,17 @@ def build_report(d):
     rev_vals=[d.get('revenue_feb','0'),d.get('revenue_mar','0'),d.get('revenue_apr','0')]
     if any(clean(v)>0 for v in rev_vals):
         chart=bar_chart(['Feb','Mar','Apr'],rev_vals)
-        gm=clean(d.get('gross_margin','0')); nm_v=clean(d.get('net_margin','0'))
-        nm_feb=clean(d.get('net_margin_feb','0')); nm_mar=clean(d.get('net_margin_mar','0')); nm_apr=clean(d.get('net_margin_apr','0'))
+        gm=clean(d.get('gross_margin','0'))
+        nm_feb=clean(d.get('net_margin_feb','0'))
+        nm_mar=clean(d.get('net_margin_mar','0'))
+        nm_apr=clean(d.get('net_margin_apr','0'))
         if gm>1: gm=gm/100
-        if nm_v>1: nm_v=nm_v/100
         if nm_feb>1: nm_feb=nm_feb/100
         if nm_mar>1: nm_mar=nm_mar/100
         if nm_apr>1: nm_apr=nm_apr/100
-        food_v=clean(d.get('food_sales','0')); drink_v=clean(d.get('drink_sales','0')); total_v=food_v+drink_v
-        food_pct=food_v/total_v if total_v>0 else 0; drink_pct=drink_v/total_v if total_v>0 else 0
+        food_v=clean(d.get('food_sales','0')); drink_v=clean(d.get('drink_sales','0'))
+        total_v=food_v+drink_v or 1
+        food_pct=food_v/total_v; drink_pct=drink_v/total_v
         margin_rows=[
             [Paragraph('Margin Analysis',s('ma',fontName='Helvetica-Bold',fontSize=8,textColor=NAVY,leading=12))],
             [Spacer(1,2*mm)],
