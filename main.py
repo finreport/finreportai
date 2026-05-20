@@ -47,33 +47,45 @@ ST_KPI_L   = s('kpil', fontSize=7, textColor=GRAY, leading=9, alignment=TA_CENTE
 ST_FLAG_H  = s('flagh', fontName='Helvetica-Bold', fontSize=8, textColor=DARK, leading=12)
 ST_FLAG_B  = s('flagb', fontSize=8, textColor=colors.HexColor('#374151'), leading=12)
 
+def clean(n):
+    try: return float(str(n).replace(',','').replace('£','').replace('%','').strip())
+    except: return 0.0
+
 def fmt(n):
-    try: return f'£{float(str(n).replace(",","").replace("£","")):,.0f}'
+    try: return f'£{clean(n):,.0f}'
     except: return str(n)
 
-def bar_chart(feb, mar, apr, w=100, h=44):
-    try: feb,mar,apr = float(str(feb).replace(",","").replace("£","")),float(str(mar).replace(",","").replace("£","")),float(str(apr).replace(",","").replace("£",""))
-    except: feb,mar,apr = 0,0,0
-    maxv = max(feb,mar,apr,1)*1.15
+def fmtp(n):
+    try:
+        v = clean(n)
+        if v > 1: v = v/100
+        return f'{v:.1%}'
+    except: return str(n)
+
+def bar_chart(months, values, w=100, h=44):
+    vals = [clean(v) for v in values]
+    maxv = max(vals+[1])*1.15
     dw = Drawing(w*mm, h*mm)
     bw=12*mm; gap=8*mm; base_y=8*mm; chart_h=(h-12)*mm
     cols=[TEAL,colors.HexColor('#0B6E60'),colors.HexColor('#084F45')]
-    for i,(v,c,l) in enumerate(zip([feb,mar,apr],cols,['Feb','Mar','Apr'])):
-        x=10*mm+i*(bw+gap); bh=(v/maxv)*chart_h
-        dw.add(Rect(x,base_y,bw,bh,fillColor=c,strokeColor=None))
+    for i,(v,c,l) in enumerate(zip(vals,cols,months)):
+        x=10*mm+i*(bw+gap); bh=(v/maxv)*chart_h if maxv>0 else 0
+        dw.add(Rect(x,base_y,bw,max(bh,1),fillColor=c,strokeColor=None))
         dw.add(String(x+bw/2,base_y-7*mm,l,fontSize=6.5,fillColor=GRAY,textAnchor='middle'))
         dw.add(String(x+bw/2,base_y+bh+1.5*mm,f'£{v/1000:.0f}k',fontSize=6.5,fillColor=NAVY,textAnchor='middle',fontName='Helvetica-Bold'))
     dw.add(Line(8*mm,base_y,w*mm-5*mm,base_y,strokeColor=BORDER,strokeWidth=0.5))
     return dw
 
 def margin_bar(pct_val, label, color, w=65, h=10):
-    try: pct_val=float(str(pct_val).replace('%',''))/100 if '%' in str(pct_val) else float(pct_val)
-    except: pct_val=0
-    dw=Drawing(w*mm,h*mm); track_w=(w-4)*mm; fill_w=track_w*min(pct_val,1.0)
+    try:
+        v = clean(pct_val)
+        if v > 1: v = v/100
+    except: v=0
+    dw=Drawing(w*mm,h*mm); track_w=(w-4)*mm; fill_w=track_w*min(v,1.0)
     dw.add(Rect(2*mm,3*mm,track_w,4*mm,fillColor=BORDER,strokeColor=None,rx=2,ry=2))
     dw.add(Rect(2*mm,3*mm,fill_w,4*mm,fillColor=color,strokeColor=None,rx=2,ry=2))
     dw.add(String(2*mm,0.5*mm,label,fontSize=6,fillColor=GRAY,textAnchor='start'))
-    dw.add(String((w-2)*mm,0.5*mm,f'{pct_val:.1%}',fontSize=6.5,fillColor=color,textAnchor='end',fontName='Helvetica-Bold'))
+    dw.add(String((w-2)*mm,0.5*mm,f'{v:.1%}',fontSize=6.5,fillColor=color,textAnchor='end',fontName='Helvetica-Bold'))
     return dw
 
 def kpi_card(value, label, change, pos=True):
@@ -105,7 +117,7 @@ def flag_card(num, category, body, severity):
         'Risk':(RED_TEXT,RED_SOFT,'✕'),
         'Info':(TEAL,TEAL_LITE,'i'),
     }
-    tc,bg,icon=color_map.get(severity,(GRAY,OFFWHITE,'•'))
+    tc,bg,icon=color_map.get(severity,(AMBER_TEXT,AMBER_SOFT,'!'))
     icon_s=s('ico',fontName='Helvetica-Bold',fontSize=10,textColor=tc,alignment=TA_CENTER,leading=12)
     sev_s=s('sev',fontName='Helvetica-Bold',fontSize=7,textColor=tc,alignment=TA_CENTER,leading=9)
     data=[[[Paragraph(icon,icon_s),Paragraph(severity,sev_s)],
@@ -125,6 +137,7 @@ def build_report(d):
     doc=SimpleDocTemplate(buf,pagesize=A4,leftMargin=17*mm,rightMargin=17*mm,topMargin=0,bottomMargin=12*mm)
     story=[]
 
+    # HEADER
     conf_pill=Table([[Paragraph('CONFIDENTIAL',s('cf',fontName='Helvetica-Bold',fontSize=7,textColor=NAVY,leading=9,alignment=TA_CENTER))]],colWidths=[22*mm])
     conf_pill.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GOLD),('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),('LEFTPADDING',(0,0),(-1,-1),4),('RIGHTPADDING',(0,0),(-1,-1),4)]))
     hdr_inner=Table([
@@ -138,30 +151,58 @@ def build_report(d):
     story.append(hdr_outer)
     story.append(Spacer(1,5*mm))
 
+    # EXECUTIVE SUMMARY
     story.append(KeepTogether([
         section_header('Executive Summary'),Spacer(1,3*mm),
         Paragraph(d.get('executive_summary','No summary provided.'),ST_BODY),
         Spacer(1,4*mm),
     ]))
 
+    # KPI CARDS
     kpis=[
-        kpi_card(d.get('total_revenue','N/A'),'Total Revenue','Q1 Period',True),
-        kpi_card(d.get('net_profit','N/A'),'Net Profit','Q1 Period',True),
-        kpi_card(d.get('gross_margin','N/A'),'Gross Margin','Q1 Average',True),
-        kpi_card(d.get('net_margin','N/A'),'Net Margin','Q1 Average',True),
+        kpi_card(fmt(d.get('total_revenue','0')),'Total Revenue','Q1 Period',True),
+        kpi_card(fmt(d.get('net_profit','0')),'Net Profit','Q1 Period',True),
+        kpi_card(fmtp(d.get('gross_margin','0')),'Gross Margin','Q1 Average',True),
+        kpi_card(fmtp(d.get('net_margin','0')),'Net Margin','Q1 Average',True),
     ]
     kpi_row=Table([kpis],colWidths=[38*mm]*4)
     kpi_row.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
     story.append(KeepTogether([kpi_row,Spacer(1,5*mm)]))
 
+    # REVENUE CHART
+    rev_months = d.get('revenue_months','Feb,Mar,Apr').split(',')
+    rev_values = [d.get('revenue_feb','0'), d.get('revenue_mar','0'), d.get('revenue_apr','0')]
+    rev_vals_clean = [clean(v) for v in rev_values]
+
+    if any(v > 0 for v in rev_vals_clean):
+        chart = bar_chart(rev_months, rev_values)
+        gm = clean(d.get('gross_margin','0'))
+        if gm > 1: gm = gm/100
+        nm = clean(d.get('net_margin','0'))
+        if nm > 1: nm = nm/100
+        margin_rows=[
+            [Paragraph('Margin Analysis',s('ma',fontName='Helvetica-Bold',fontSize=8,textColor=NAVY,leading=12))],
+            [Spacer(1,3*mm)],
+            [Paragraph('Gross Margin',ST_SMALL)],[margin_bar(gm,'Q1 Average',TEAL)],
+            [Spacer(1,2*mm)],
+            [Paragraph('Net Margin',ST_SMALL)],[margin_bar(nm,'Q1 Average',GREEN_TEXT)],
+        ]
+        m_t=Table(margin_rows,colWidths=[70*mm])
+        m_t.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
+        combined=Table([[chart,m_t]],colWidths=[100*mm,75*mm])
+        combined.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
+        story.append(KeepTogether([section_header('Revenue Performance & Margins'),Spacer(1,3*mm),combined,Spacer(1,5*mm)]))
+
+    # KEY TRENDS
     story.append(KeepTogether([
         section_header('Key Trends & Analysis'),Spacer(1,3*mm),
         Paragraph(d.get('analysis','No analysis provided.'),ST_BODY),
         Spacer(1,5*mm),
     ]))
 
+    # FLAGS
     raw_flags=d.get('flags','')
-    flag_lines=[f.strip() for f in raw_flags.split('\n') if f.strip().startswith('FLAG:')]
+    flag_lines=[f.strip() for f in raw_flags.replace('FLAG:','\nFLAG:').split('\n') if 'FLAG:' in f]
     story.append(KeepTogether([section_header('Flags & Items to Watch'),Spacer(1,3*mm)]))
     if flag_lines:
         for i,fl in enumerate(flag_lines):
@@ -171,12 +212,14 @@ def build_report(d):
         story.append(Paragraph(raw_flags,ST_BODY))
     story.append(Spacer(1,4*mm))
 
+    # OUTLOOK
     story.append(KeepTogether([
         section_header('Outlook'),Spacer(1,3*mm),
         Paragraph(d.get('outlook','No outlook provided.'),ST_BODY),
         Spacer(1,4*mm),
     ]))
 
+    # FOOTER
     ft_data=[[Paragraph(f"Prepared by FinReportAI &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; All figures GBP (£) &nbsp;·&nbsp; Confidential",ST_FOOTER)]]
     ft=Table(ft_data,colWidths=[175*mm])
     ft.setStyle(TableStyle([('LINEABOVE',(0,0),(-1,0),0.5,BORDER),('TOPPADDING',(0,0),(-1,-1),5),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
