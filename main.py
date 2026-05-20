@@ -52,13 +52,15 @@ def clean(n):
     except: return 0.0
 
 def fmt(n):
+    if str(n).strip().upper() in ('NA','N/A','','NONE','NULL'): return 'N/A'
     v=clean(n)
-    return f'£{v:,.0f}' if v else '£0'
+    return f'£{v:,.0f}' if v else 'N/A'
 
 def fmtp(n):
+    if str(n).strip().upper() in ('NA','N/A','','NONE','NULL'): return 'N/A'
     v=clean(n)
     if v>1: v=v/100
-    return f'{v:.1%}'
+    return f'{v:.1%}' if v else 'N/A'
 
 def bar_chart(labels, values, w=100, h=44):
     vals=[clean(v) for v in values]
