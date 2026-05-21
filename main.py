@@ -1,5 +1,5 @@
 from flask import Flask, request, send_file
-import io
+import io, json
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import mm
@@ -44,52 +44,83 @@ ST_BOLD_R  = s('boldr', fontName='Helvetica-Bold', fontSize=8, textColor=NAVY, a
 ST_FOOTER  = s('foot', fontSize=7, textColor=GRAY, alignment=TA_CENTER, leading=10)
 ST_KPI_V   = s('kpiv', fontName='Helvetica-Bold', fontSize=17, textColor=NAVY, leading=21, alignment=TA_CENTER)
 ST_KPI_L   = s('kpil', fontSize=7, textColor=GRAY, leading=9, alignment=TA_CENTER)
-ST_FLAG_H  = s('flagh', fontName='Helvetica-Bold', fontSize=8, textColor=DARK, leading=12)
 ST_FLAG_B  = s('flagb', fontSize=8, textColor=colors.HexColor('#374151'), leading=12)
 
 def clean(n):
+    """Extract a float from any messy value. Returns None if not a number."""
+    if n is None: return None
+    txt = str(n).strip().upper()
+    if txt in ('NA','N/A','','NONE','NULL','-','—'): return None
     try: return float(str(n).replace(',','').replace('£','').replace('%','').replace('$','').strip())
-    except: return 0.0
+    except: return None
+
+def has_val(n):
+    return clean(n) is not None
 
 def fmt(n):
-    if str(n).strip().upper() in ('NA','N/A','','NONE','NULL'): return 'N/A'
-    v=clean(n)
-    return f'£{v:,.0f}' if v else 'N/A'
+    v = clean(n)
+    return f'£{v:,.0f}' if v is not None else 'N/A'
 
 def fmtp(n):
-    if str(n).strip().upper() in ('NA','N/A','','NONE','NULL'): return 'N/A'
-    v=clean(n)
-    if v>1: v=v/100
-    return f'{v:.1%}' if v else 'N/A'
+    v = clean(n)
+    if v is None: return 'N/A'
+    if v > 1: v = v/100
+    return f'{v:.1%}'
 
+def get_list(d, key):
+    """Return a list of {label, value, ...} dicts from data, tolerating various shapes."""
+    raw = d.get(key)
+    if raw is None: return []
+    if isinstance(raw, str):
+        raw = raw.strip()
+        if not raw or raw.upper() in ('NA','N/A','NONE','NULL'): return []
+        try: raw = json.loads(raw)
+        except: return []
+    if isinstance(raw, dict): raw = [raw]
+    if not isinstance(raw, list): return []
+    out = []
+    for item in raw:
+        if isinstance(item, dict):
+            out.append(item)
+    return out
+
+# ── Chart helpers ───────────────────────────────────────────────────────────
 def bar_chart(labels, values, w=100, h=44):
-    vals=[clean(v) for v in values]
-    maxv=max(vals+[1])*1.15
-    dw=Drawing(w*mm,h*mm)
-    bw=12*mm; gap=8*mm; base_y=8*mm; chart_h=(h-12)*mm
-    cols=[TEAL,colors.HexColor('#0B6E60'),colors.HexColor('#084F45')]
-    for i,(v,c,l) in enumerate(zip(vals,cols,labels)):
-        x=10*mm+i*(bw+gap); bh=(v/maxv)*chart_h if maxv>0 else 1
-        dw.add(Rect(x,base_y,bw,max(bh,1),fillColor=c,strokeColor=None))
-        dw.add(String(x+bw/2,base_y-7*mm,l,fontSize=6.5,fillColor=GRAY,textAnchor='middle'))
-        dw.add(String(x+bw/2,base_y+bh+1.5*mm,f'£{v/1000:.0f}k',fontSize=6.5,fillColor=NAVY,textAnchor='middle',fontName='Helvetica-Bold'))
-    dw.add(Line(8*mm,base_y,w*mm-5*mm,base_y,strokeColor=BORDER,strokeWidth=0.5))
+    vals = [clean(v) or 0 for v in values]
+    maxv = max(vals + [1]) * 1.15
+    dw = Drawing(w*mm, h*mm)
+    n = max(len(vals), 1)
+    avail = (w - 20) * mm
+    bw = min(14*mm, avail / (n*1.8))
+    gap = (avail - bw*n) / max(n, 1)
+    base_y = 8*mm; chart_h = (h-12)*mm
+    palette = [TEAL, colors.HexColor('#0B6E60'), colors.HexColor('#084F45'),
+               colors.HexColor('#0A8A78'), colors.HexColor('#063D35'), colors.HexColor('#0D9E89')]
+    for i,(v,l) in enumerate(zip(vals, labels)):
+        c = palette[i % len(palette)]
+        x = 10*mm + i*(bw+gap)
+        bh = (v/maxv)*chart_h if maxv > 0 else 1
+        dw.add(Rect(x, base_y, bw, max(bh,1), fillColor=c, strokeColor=None))
+        dw.add(String(x+bw/2, base_y-7*mm, str(l)[:6], fontSize=6.5, fillColor=GRAY, textAnchor='middle'))
+        lab = f'£{v/1000:.0f}k' if v >= 1000 else f'£{v:.0f}'
+        dw.add(String(x+bw/2, base_y+bh+1.5*mm, lab, fontSize=6.5, fillColor=NAVY, textAnchor='middle', fontName='Helvetica-Bold'))
+    dw.add(Line(8*mm, base_y, w*mm-5*mm, base_y, strokeColor=BORDER, strokeWidth=0.5))
     return dw
 
 def margin_bar(pct_val, label, color, w=65, h=10):
-    v=clean(pct_val)
-    if v>1: v=v/100
-    dw=Drawing(w*mm,h*mm); track_w=(w-4)*mm; fill_w=track_w*min(v,1.0)
+    v = clean(pct_val)
+    if v is None: v = 0
+    if v > 1: v = v/100
+    dw = Drawing(w*mm, h*mm); track_w=(w-4)*mm; fill_w=track_w*min(max(v,0),1.0)
     dw.add(Rect(2*mm,3*mm,track_w,4*mm,fillColor=BORDER,strokeColor=None,rx=2,ry=2))
     dw.add(Rect(2*mm,3*mm,fill_w,4*mm,fillColor=color,strokeColor=None,rx=2,ry=2))
-    dw.add(String(2*mm,0.5*mm,label,fontSize=6,fillColor=GRAY,textAnchor='start'))
+    dw.add(String(2*mm,0.5*mm,str(label),fontSize=6,fillColor=GRAY,textAnchor='start'))
     dw.add(String((w-2)*mm,0.5*mm,f'{v:.1%}',fontSize=6.5,fillColor=color,textAnchor='end',fontName='Helvetica-Bold'))
     return dw
 
-def kpi_card(value, label, change, pos=True):
-    chg_col=GREEN_TEXT if pos else RED_TEXT
-    chg_s=s('cs',fontName='Helvetica-Bold',fontSize=7.5,textColor=chg_col,leading=10,alignment=TA_CENTER)
-    data=[[Paragraph(str(value),ST_KPI_V)],[Paragraph(str(label),ST_KPI_L)],[Paragraph(str(change),chg_s)]]
+def kpi_card(value, label, sub):
+    sub_s = s('cs', fontName='Helvetica-Bold', fontSize=7.5, textColor=TEAL, leading=10, alignment=TA_CENTER)
+    data=[[Paragraph(str(value),ST_KPI_V)],[Paragraph(str(label),ST_KPI_L)],[Paragraph(str(sub),sub_s)]]
     t=Table(data,colWidths=[38*mm])
     t.setStyle(TableStyle([
         ('BACKGROUND',(0,0),(-1,-1),WHITE),('BOX',(0,0),(-1,-1),0.75,BORDER),
@@ -111,7 +142,7 @@ def section_header(title):
 def flag_card(num, body):
     data=[[[Paragraph('!',s('ico',fontName='Helvetica-Bold',fontSize=10,textColor=AMBER_TEXT,alignment=TA_CENTER,leading=12)),
              Paragraph('Watch',s('sev',fontName='Helvetica-Bold',fontSize=7,textColor=AMBER_TEXT,alignment=TA_CENTER,leading=9))],
-            [Paragraph(f'{num}. Flag',ST_FLAG_H),Spacer(1,2),Paragraph(body,ST_FLAG_B)]]]
+            [Paragraph(f'{num}. Item to Watch',s('fh',fontName='Helvetica-Bold',fontSize=8,textColor=DARK,leading=12)),Spacer(1,2),Paragraph(body,ST_FLAG_B)]]]
     t=Table(data,colWidths=[14*mm,161*mm])
     t.setStyle(TableStyle([
         ('BACKGROUND',(0,0),(0,0),AMBER_SOFT),('VALIGN',(0,0),(-1,-1),'TOP'),
@@ -122,14 +153,11 @@ def flag_card(num, body):
     ]))
     return t
 
-def exp_card(lbl, q1, pct_rev, trend):
-    tc=RED_TEXT if trend=='up' else GREEN_TEXT if trend=='down' else GRAY
-    ts='▲' if trend=='up' else '▼' if trend=='down' else '●'
+def exp_card(lbl, val, pct_rev):
     data=[
-        [Paragraph(lbl,s('el',fontName='Helvetica-Bold',fontSize=8,textColor=NAVY,leading=11))],
-        [Paragraph(fmt(q1),s('ev',fontName='Helvetica-Bold',fontSize=14,textColor=NAVY,leading=18))],
-        [Paragraph(f'{pct_rev:.1f}% of revenue',s('ep',fontSize=7,textColor=GRAY,leading=10))],
-        [Paragraph(f'{ts} {trend.title()}',s('et',fontName='Helvetica-Bold',fontSize=7.5,textColor=tc,leading=10))],
+        [Paragraph(str(lbl),s('el',fontName='Helvetica-Bold',fontSize=8,textColor=NAVY,leading=11))],
+        [Paragraph(fmt(val),s('ev',fontName='Helvetica-Bold',fontSize=13,textColor=NAVY,leading=17))],
+        [Paragraph(f'{pct_rev:.1f}% of revenue' if pct_rev is not None else '',s('ep',fontSize=7,textColor=GRAY,leading=10))],
     ]
     t=Table(data,colWidths=[33*mm])
     t.setStyle(TableStyle([
@@ -140,60 +168,115 @@ def exp_card(lbl, q1, pct_rev, trend):
     ]))
     return t
 
-def pl_table(d):
+# ── Dynamic P&L table ─────────────────────────────────────────────────────────
+def pl_table(d, periods, revenue_items, cogs_items, opex_items):
+    """Build a P&L table dynamically. periods is a list like ['Feb','Mar','Apr'].
+    Each *_items entry is a dict: {label, values:[...per period], total}."""
+    ncols = len(periods)
+    show_periods = ncols > 0
+
     def th(txt, right=True): return Paragraph(txt, ST_TH if right else ST_TH_L)
     def td(txt, right=True): return Paragraph(str(txt), ST_TD if right else ST_TD_L)
-    def money(v, bold=False): return Paragraph(fmt(v), ST_BOLD_R if bold else ST_TD)
+    def money(v, bold=False):
+        return Paragraph(fmt(v), ST_BOLD_R if bold else ST_TD)
     def label(txt, indent=False, bold=False, sub=False):
         p='    ' if indent else ''
         st=ST_BOLD if bold else (s('sub',fontSize=7.5,textColor=GRAY,leading=11) if sub else ST_TD_L)
-        return Paragraph(p+txt,st)
+        return Paragraph(p+str(txt),st)
     def cat(txt):
-        return [Paragraph(txt,s('cat',fontName='Helvetica-Bold',fontSize=7.5,textColor=TEAL,leading=11)),'','','','']
+        return [Paragraph(txt,s('cat',fontName='Helvetica-Bold',fontSize=7.5,textColor=TEAL,leading=11))] + ['']*(ncols+1)
+    def blank():
+        return [Paragraph(' ',s('sp',fontSize=2,leading=2))] + [' ']*(ncols+1)
 
-    rows=[
-        [th('',False),th('Feb'),th('Mar'),th('Apr'),th('Q1 Total')],
-        cat('REVENUE'),
-        [label('Food Sales',indent=True),money(d.get('food_sales_feb','0')),money(d.get('food_sales_mar','0')),money(d.get('food_sales_apr','0')),money(d.get('food_sales','0'))],
-        [label('Drink Sales',indent=True),money(d.get('drink_sales_feb','0')),money(d.get('drink_sales_mar','0')),money(d.get('drink_sales_apr','0')),money(d.get('drink_sales','0'))],
-        [label('Total Revenue',bold=True),money(d.get('revenue_feb','0'),True),money(d.get('revenue_mar','0'),True),money(d.get('revenue_apr','0'),True),money(d.get('total_revenue','0'),True)],
-        [Paragraph(' ',s('sp',fontSize=2,leading=2)),' ',' ',' ',' '],
-        cat('COST OF GOODS SOLD'),
-        [label('Total COGS',bold=True),money(d.get('cogs_feb','0'),True),money(d.get('cogs_mar','0'),True),money(d.get('cogs_apr','0'),True),money(d.get('total_cogs','0'),True)],
-        [Paragraph(' ',s('sp',fontSize=2,leading=2)),' ',' ',' ',' '],
-        [label('GROSS PROFIT',bold=True),money(d.get('gross_profit_feb','0'),True),money(d.get('gross_profit_mar','0'),True),money(d.get('gross_profit_apr','0'),True),money(d.get('gross_profit','0'),True)],
-        [label('Gross Margin %',sub=True),td('—'),td('—'),td('—'),td(fmtp(d.get('gross_margin','0')))],
-        [Paragraph(' ',s('sp',fontSize=2,leading=2)),' ',' ',' ',' '],
-        cat('OPERATING EXPENSES'),
-        [label('Rent & Rates',indent=True),money(d.get('rent_feb','0')),money(d.get('rent_mar','0')),money(d.get('rent_apr','0')),money(d.get('rent','0'))],
-        [label('Staff Wages',indent=True),money(d.get('wages_feb','0')),money(d.get('wages_mar','0')),money(d.get('wages_apr','0')),money(d.get('wages','0'))],
-        [label('Utilities',indent=True),money(d.get('utilities_feb','0')),money(d.get('utilities_mar','0')),money(d.get('utilities_apr','0')),money(d.get('utilities','0'))],
-        [label('Marketing',indent=True),money(d.get('marketing_feb','0')),money(d.get('marketing_mar','0')),money(d.get('marketing_apr','0')),money(d.get('marketing','0'))],
-        [label('Miscellaneous',indent=True),money(d.get('misc_feb','0')),money(d.get('misc_mar','0')),money(d.get('misc_apr','0')),money(d.get('miscellaneous','0'))],
-        [label('Total OpEx',bold=True),money(d.get('opex_feb','0'),True),money(d.get('opex_mar','0'),True),money(d.get('opex_apr','0'),True),money(d.get('total_opex','0'),True)],
-        [Paragraph(' ',s('sp',fontSize=2,leading=2)),' ',' ',' ',' '],
-        [label('NET PROFIT',bold=True),money(d.get('net_profit_feb','0'),True),money(d.get('net_profit_mar','0'),True),money(d.get('net_profit_apr','0'),True),money(d.get('net_profit','0'),True)],
-        [label('Net Margin %',sub=True),td(fmtp(d.get('net_margin_feb','0'))),td(fmtp(d.get('net_margin_mar','0'))),td(fmtp(d.get('net_margin_apr','0'))),td(fmtp(d.get('net_margin','0')))],
-    ]
+    # header
+    hdr = [th('', False)]
+    for p in periods: hdr.append(th(str(p)[:6]))
+    hdr.append(th('Total'))
 
-    cw=[60*mm,28*mm,28*mm,28*mm,28*mm]
-    t=Table(rows,colWidths=cw,repeatRows=1)
-    t.setStyle(TableStyle([
+    def item_row(item, bold=False, indent=True):
+        vals = item.get('values', [])
+        row = [label(item.get('label','—'), indent=indent, bold=bold)]
+        for i in range(ncols):
+            v = vals[i] if i < len(vals) else None
+            row.append(money(v, bold))
+        row.append(money(item.get('total'), bold or True))
+        return row
+
+    rows = [hdr]
+    cat_rows = []  # track indices for styling
+    teal_rows = []
+
+    # REVENUE
+    if revenue_items:
+        rows.append(cat('REVENUE')); cat_rows.append(len(rows)-1)
+        for it in revenue_items:
+            rows.append(item_row(it))
+        # total revenue
+        tr = {'label':'Total Revenue','values':[d.get('revenue_'+p.lower()) for p in periods] if show_periods else [], 'total': d.get('total_revenue')}
+        rows.append(item_row(tr, bold=True, indent=False)); teal_rows.append(len(rows)-1)
+        rows.append(blank())
+
+    # COGS
+    if cogs_items or has_val(d.get('total_cogs')):
+        rows.append(cat('COST OF GOODS SOLD')); cat_rows.append(len(rows)-1)
+        for it in cogs_items:
+            rows.append(item_row(it))
+        cogs_total = d.get('total_cogs')
+        if not has_val(cogs_total) and cogs_items:
+            ssum = sum(clean(it.get('total')) or 0 for it in cogs_items)
+            cogs_total = ssum if ssum>0 else None
+        tc = {'label':'Total COGS','values':[],'total':cogs_total}
+        rows.append(item_row(tc, bold=True, indent=False)); teal_rows.append(len(rows)-1)
+        rows.append(blank())
+
+    # GROSS PROFIT
+    if has_val(d.get('gross_profit')):
+        gp = {'label':'GROSS PROFIT','values':[d.get('gross_profit_'+p.lower()) for p in periods] if show_periods else [],'total':d.get('gross_profit')}
+        rows.append(item_row(gp, bold=True, indent=False)); teal_rows.append(len(rows)-1)
+        if has_val(d.get('gross_margin')):
+            gm_row = [label('Gross Margin %', sub=True)] + [td('—')]*ncols + [td(fmtp(d.get('gross_margin')))]
+            rows.append(gm_row)
+        rows.append(blank())
+
+    # OPERATING EXPENSES
+    if opex_items or has_val(d.get('total_opex')):
+        rows.append(cat('OPERATING EXPENSES')); cat_rows.append(len(rows)-1)
+        for it in opex_items:
+            rows.append(item_row(it))
+        opex_total = d.get('total_opex')
+        if not has_val(opex_total) and opex_items:
+            ssum = sum(clean(it.get('total')) or 0 for it in opex_items)
+            opex_total = ssum if ssum>0 else None
+        to = {'label':'Total Operating Expenses','values':[],'total':opex_total}
+        rows.append(item_row(to, bold=True, indent=False)); teal_rows.append(len(rows)-1)
+        rows.append(blank())
+
+    # NET PROFIT
+    np_row = {'label':'NET PROFIT','values':[d.get('net_profit_'+p.lower()) for p in periods] if show_periods else [],'total':d.get('net_profit')}
+    rows.append(item_row(np_row, bold=True, indent=False))
+    net_row_idx = len(rows)-1
+    if has_val(d.get('net_margin')):
+        nm_vals = [fmtp(d.get('net_margin_'+p.lower())) for p in periods] if show_periods else []
+        nm_row = [label('Net Margin %', sub=True)] + [td(x) for x in nm_vals] + [td(fmtp(d.get('net_margin')))]
+        rows.append(nm_row)
+
+    colw = [60*mm] + [ (115*mm)/(ncols+1) ]*(ncols+1)
+    t = Table(rows, colWidths=colw, repeatRows=1)
+    style = [
         ('BACKGROUND',(0,0),(-1,0),NAVY),
         ('ROWBACKGROUNDS',(0,1),(-1,-1),[WHITE,OFFWHITE]),
-        ('BACKGROUND',(0,4),(-1,4),TEAL_LITE),
-        ('BACKGROUND',(0,8),(-1,8),TEAL_LITE),
-        ('BACKGROUND',(0,17),(-1,17),TEAL_LITE),
-        ('BACKGROUND',(0,19),(-1,19),colors.HexColor('#FFF7E6')),
         ('LINEBELOW',(0,0),(-1,0),1,TEAL),
-        ('LINEBELOW',(0,4),(-1,4),0.5,BORDER),
-        ('LINEBELOW',(0,8),(-1,8),0.5,BORDER),
-        ('LINEBELOW',(0,17),(-1,17),0.5,BORDER),
-        ('LINEBELOW',(0,19),(-1,-1),1.5,NAVY),
         ('TOPPADDING',(0,0),(-1,-1),3),('BOTTOMPADDING',(0,0),(-1,-1),3),
         ('LEFTPADDING',(0,0),(-1,-1),5),('RIGHTPADDING',(0,0),(-1,-1),5),
         ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-    ]))
+        ('BACKGROUND',(0,net_row_idx),(-1,net_row_idx),colors.HexColor('#FFF7E6')),
+        ('LINEABOVE',(0,net_row_idx),(-1,net_row_idx),1.5,NAVY),
+    ]
+    for ci in cat_rows:
+        style.append(('SPAN',(0,ci),(-1,ci)))
+    for ti in teal_rows:
+        style.append(('BACKGROUND',(0,ti),(-1,ti),TEAL_LITE))
+    t.setStyle(TableStyle(style))
     return t
 
 def build_report(d):
@@ -201,12 +284,24 @@ def build_report(d):
     doc=SimpleDocTemplate(buf,pagesize=A4,leftMargin=17*mm,rightMargin=17*mm,topMargin=0,bottomMargin=12*mm)
     story=[]
 
+    # Periods (dynamic — Claude tells us which periods exist)
+    periods_raw = d.get('periods','')
+    if isinstance(periods_raw, list):
+        periods = [str(p) for p in periods_raw if str(p).strip()]
+    else:
+        periods = [p.strip() for p in str(periods_raw).split(',') if p.strip()]
+    periods = periods[:6]  # cap
+
+    revenue_items = get_list(d, 'revenue_items')
+    cogs_items    = get_list(d, 'cogs_items')
+    opex_items    = get_list(d, 'opex_items')
+
     # HEADER
     conf_pill=Table([[Paragraph('CONFIDENTIAL',s('cf',fontName='Helvetica-Bold',fontSize=7,textColor=NAVY,leading=9,alignment=TA_CENTER))]],colWidths=[22*mm])
     conf_pill.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GOLD),('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),('LEFTPADDING',(0,0),(-1,-1),4),('RIGHTPADDING',(0,0),(-1,-1),4)]))
     hdr_inner=Table([
-        [Paragraph(d.get('business_name','Client Business'),s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
-        [Paragraph(f"Quarterly Financial Report &nbsp;·&nbsp; {d.get('period','Q1')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
+        [Paragraph(str(d.get('business_name','Client Business')),s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
+        [Paragraph(f"Financial Report &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
         [Spacer(1,3*mm)],[conf_pill],
     ],colWidths=[175*mm])
     hdr_inner.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
@@ -218,103 +313,100 @@ def build_report(d):
     # EXECUTIVE SUMMARY
     story.append(KeepTogether([
         section_header('Executive Summary'),Spacer(1,3*mm),
-        Paragraph(d.get('executive_summary','No summary provided.'),ST_BODY),
+        Paragraph(str(d.get('executive_summary','No summary provided.')),ST_BODY),
         Spacer(1,4*mm),
     ]))
 
-    # KPI CARDS
-    kpis=[
-        kpi_card(fmt(d.get('total_revenue','0')),'Total Revenue','Q1 Period',True),
-        kpi_card(fmt(d.get('net_profit','0')),'Net Profit','Q1 Period',True),
-        kpi_card(fmtp(d.get('gross_margin','0')),'Gross Margin','Q1 Average',True),
-        kpi_card(fmtp(d.get('net_margin','0')),'Net Margin','Q1 Average',True),
+    # KPI CARDS — only show ones with data
+    kpi_defs = [
+        (fmt(d.get('total_revenue')),'Total Revenue', d.get('period','')),
+        (fmt(d.get('net_profit')),'Net Profit', d.get('period','')),
+        (fmtp(d.get('gross_margin')),'Gross Margin','Average'),
+        (fmtp(d.get('net_margin')),'Net Margin','Average'),
     ]
+    kpis = [kpi_card(v,l,sub) for (v,l,sub) in kpi_defs]
     kpi_row=Table([kpis],colWidths=[38*mm]*4)
     kpi_row.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
     story.append(KeepTogether([kpi_row,Spacer(1,5*mm)]))
 
-    # REVENUE CHART + MARGINS
-    rev_vals=[d.get('revenue_feb','0'),d.get('revenue_mar','0'),d.get('revenue_apr','0')]
-    if any(clean(v)>0 for v in rev_vals):
-        chart=bar_chart(['Feb','Mar','Apr'],rev_vals)
-        gm=clean(d.get('gross_margin','0'))
-        nm_feb=clean(d.get('net_margin_feb','0'))
-        nm_mar=clean(d.get('net_margin_mar','0'))
-        nm_apr=clean(d.get('net_margin_apr','0'))
-        if gm>1: gm=gm/100
-        if nm_feb>1: nm_feb=nm_feb/100
-        if nm_mar>1: nm_mar=nm_mar/100
-        if nm_apr>1: nm_apr=nm_apr/100
-        food_v=clean(d.get('food_sales','0')); drink_v=clean(d.get('drink_sales','0'))
-        total_v=food_v+drink_v or 1
-        food_pct=food_v/total_v; drink_pct=drink_v/total_v
+    # REVENUE CHART + MARGINS — only if we have period revenue
+    period_rev = [d.get('revenue_'+p.lower()) for p in periods]
+    if periods and any(has_val(v) for v in period_rev):
+        chart=bar_chart(periods, period_rev)
         margin_rows=[
             [Paragraph('Margin Analysis',s('ma',fontName='Helvetica-Bold',fontSize=8,textColor=NAVY,leading=12))],
             [Spacer(1,2*mm)],
-            [Paragraph('Gross Margin',ST_SMALL)],[margin_bar(gm,'Q1 Average',TEAL)],
-            [Spacer(1,1*mm)],
-            [Paragraph('Net Margin by Month',ST_SMALL)],
-            [margin_bar(nm_feb,'February',RED_TEXT)],[Spacer(1,1*mm)],
-            [margin_bar(nm_mar,'March',GOLD)],[Spacer(1,1*mm)],
-            [margin_bar(nm_apr,'April',GREEN_TEXT)],
-            [Spacer(1,2*mm)],
-            [Paragraph('Revenue Mix (Q1)',ST_SMALL)],
-            [margin_bar(food_pct,f'Food Sales {food_pct:.0%}',TEAL)],[Spacer(1,1*mm)],
-            [margin_bar(drink_pct,f'Drink Sales {drink_pct:.0%}',colors.HexColor('#0B6E60'))],
         ]
+        if has_val(d.get('gross_margin')):
+            margin_rows += [[Paragraph('Gross Margin',ST_SMALL)],[margin_bar(d.get('gross_margin'),'Average',TEAL)],[Spacer(1,1*mm)]]
+        # net margin by period
+        nm_period = [(p, d.get('net_margin_'+p.lower())) for p in periods if has_val(d.get('net_margin_'+p.lower()))]
+        if nm_period:
+            margin_rows += [[Paragraph('Net Margin by Period',ST_SMALL)]]
+            palette=[RED_TEXT,GOLD,GREEN_TEXT,TEAL,colors.HexColor('#0B6E60'),NAVY]
+            for i,(p,v) in enumerate(nm_period):
+                margin_rows += [[margin_bar(v, p, palette[i%len(palette)])],[Spacer(1,1*mm)]]
+        # revenue mix from revenue_items totals
+        rev_with_totals = [it for it in revenue_items if has_val(it.get('total'))]
+        if len(rev_with_totals) >= 2:
+            grand = sum(clean(it.get('total')) for it in rev_with_totals)
+            if grand>0:
+                margin_rows += [[Spacer(1,1*mm)],[Paragraph('Revenue Mix',ST_SMALL)]]
+                palette2=[TEAL,colors.HexColor('#0B6E60'),colors.HexColor('#084F45'),colors.HexColor('#0D9E89')]
+                for i,it in enumerate(rev_with_totals[:4]):
+                    pctv = clean(it.get('total'))/grand
+                    margin_rows += [[margin_bar(pctv, f"{it.get('label','')[:18]} {pctv:.0%}", palette2[i%len(palette2)])],[Spacer(1,1*mm)]]
         m_t=Table(margin_rows,colWidths=[70*mm])
         m_t.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
         combined=Table([[chart,m_t]],colWidths=[100*mm,75*mm])
         combined.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
         story.append(KeepTogether([section_header('Revenue Performance & Margins'),Spacer(1,3*mm),combined,Spacer(1,5*mm)]))
 
-    # EXPENSE BREAKDOWN CARDS
-    total_r=clean(d.get('total_revenue','1')) or 1
-    rent_v=clean(d.get('rent','0')); wages_v=clean(d.get('wages','0'))
-    utils_v=clean(d.get('utilities','0')); mktg_v=clean(d.get('marketing','0'))
-    misc_v=clean(d.get('miscellaneous','0'))
-    if any(v>0 for v in [rent_v,wages_v,utils_v,mktg_v,misc_v]):
-        exp_cards=[
-            exp_card('Rent & Rates',rent_v,rent_v/total_r*100,'stable'),
-            exp_card('Staff Wages',wages_v,wages_v/total_r*100,'up'),
-            exp_card('Utilities',utils_v,utils_v/total_r*100,'down'),
-            exp_card('Marketing',mktg_v,mktg_v/total_r*100,'up'),
-            exp_card('Miscellaneous',misc_v,misc_v/total_r*100,'stable'),
-        ]
-        exp_row=Table([exp_cards],colWidths=[33*mm]*5)
+    # EXPENSE BREAKDOWN CARDS — dynamic from opex_items
+    total_r = clean(d.get('total_revenue'))
+    opex_with_totals = [it for it in opex_items if has_val(it.get('total'))]
+    if opex_with_totals:
+        cards=[]
+        for it in opex_with_totals[:5]:
+            tv = clean(it.get('total'))
+            pct = (tv/total_r*100) if (total_r and total_r>0) else None
+            cards.append(exp_card(it.get('label','')[:16], tv, pct))
+        # pad to keep layout tidy
+        exp_row=Table([cards],colWidths=[33*mm]*len(cards))
         exp_row.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
         story.append(KeepTogether([section_header('Operating Expense Breakdown'),Spacer(1,3*mm),exp_row,Spacer(1,5*mm)]))
 
     # P&L TABLE
-    story.append(KeepTogether([section_header('Full Profit & Loss Statement'),Spacer(1,3*mm)]))
-    story.append(pl_table(d))
-    story.append(Spacer(1,5*mm))
+    if revenue_items or cogs_items or opex_items or has_val(d.get('total_revenue')):
+        story.append(KeepTogether([section_header('Full Profit & Loss Statement'),Spacer(1,3*mm)]))
+        story.append(pl_table(d, periods, revenue_items, cogs_items, opex_items))
+        story.append(Spacer(1,5*mm))
 
     # KEY TRENDS
-    story.append(KeepTogether([
-        section_header('Key Trends & Analysis'),Spacer(1,3*mm),
-        Paragraph(d.get('analysis','No analysis provided.'),ST_BODY),
-        Spacer(1,5*mm),
-    ]))
+    if d.get('analysis'):
+        story.append(KeepTogether([
+            section_header('Key Trends & Analysis'),Spacer(1,3*mm),
+            Paragraph(str(d.get('analysis')),ST_BODY),
+            Spacer(1,5*mm),
+        ]))
 
     # FLAGS
-    raw_flags=d.get('flags','')
+    raw_flags=str(d.get('flags',''))
     flag_lines=[f.strip() for f in raw_flags.replace('FLAG:','\nFLAG:').split('\n') if 'FLAG:' in f]
-    story.append(KeepTogether([section_header('Flags & Items to Watch'),Spacer(1,3*mm)]))
     if flag_lines:
+        story.append(KeepTogether([section_header('Flags & Items to Watch'),Spacer(1,3*mm)]))
         for i,fl in enumerate(flag_lines):
             text=fl.replace('FLAG:','').strip()
             story.append(KeepTogether([flag_card(i+1,text),Spacer(1,2*mm)]))
-    else:
-        story.append(Paragraph(raw_flags,ST_BODY))
-    story.append(Spacer(1,4*mm))
+        story.append(Spacer(1,4*mm))
 
     # OUTLOOK
-    story.append(KeepTogether([
-        section_header('Outlook'),Spacer(1,3*mm),
-        Paragraph(d.get('outlook','No outlook provided.'),ST_BODY),
-        Spacer(1,4*mm),
-    ]))
+    if d.get('outlook'):
+        story.append(KeepTogether([
+            section_header('Outlook'),Spacer(1,3*mm),
+            Paragraph(str(d.get('outlook')),ST_BODY),
+            Spacer(1,4*mm),
+        ]))
 
     # FOOTER
     ft_data=[[Paragraph(f"Prepared by FinReportAI &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; All figures GBP (£) &nbsp;·&nbsp; Confidential",ST_FOOTER)]]
