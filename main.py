@@ -101,7 +101,7 @@ def bar_chart(labels, values, w=100, h=44):
         x = 10*mm + i*(bw+gap)
         bh = (v/maxv)*chart_h if maxv > 0 else 1
         dw.add(Rect(x, base_y, bw, max(bh,1), fillColor=c, strokeColor=None))
-        dw.add(String(x+bw/2, base_y-7*mm, str(l)[:6], fontSize=6.5, fillColor=GRAY, textAnchor='middle'))
+        dw.add(String(x+bw/2, base_y-7*mm, str(l)[:8], fontSize=6.5, fillColor=GRAY, textAnchor='middle'))
         lab = f'£{v/1000:.0f}k' if v >= 1000 else f'£{v:.0f}'
         dw.add(String(x+bw/2, base_y+bh+1.5*mm, lab, fontSize=6.5, fillColor=NAVY, textAnchor='middle', fontName='Helvetica-Bold'))
     dw.add(Line(8*mm, base_y, w*mm-5*mm, base_y, strokeColor=BORDER, strokeWidth=0.5))
@@ -190,7 +190,7 @@ def pl_table(d, periods, revenue_items, cogs_items, opex_items):
 
     # header
     hdr = [th('', False)]
-    for p in periods: hdr.append(th(str(p)[:6]))
+    for p in periods: hdr.append(th(str(p)[:8]))
     hdr.append(th('Total'))
 
     def item_row(item, bold=False, indent=True):
