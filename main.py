@@ -308,38 +308,43 @@ def build_report(d):
 
     # HEADER
     conf_pill=Table([[Paragraph('CONFIDENTIAL',s('cf',fontName='Helvetica-Bold',fontSize=7,textColor=NAVY,leading=9,alignment=TA_CENTER))]],colWidths=[22*mm])
-conf_pill.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GOLD),('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),('LEFTPADDING',(0,0),(-1,-1),4),('RIGHTPADDING',(0,0),(-1,-1),4)]))
-
-white_label_name = d.get('white_label_firm','').strip()
-white_label_logo = d.get('white_label_logo','').strip()
-prepared_by = white_label_name if white_label_name else 'FinReportAI'
-
-if white_label_logo:
-    from reportlab.platypus import Image as RLImage
-    import urllib.request, tempfile, os
-    try:
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-        urllib.request.urlretrieve(white_label_logo, tmp.name)
-        logo_img = RLImage(tmp.name, width=60*mm, height=15*mm, kind='proportional')
-        hdr_inner=Table([
-            [logo_img],
-            [Paragraph(str(d.get('business_name','Client Business')),s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
-            [Paragraph(f"Financial Report &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
-            [Spacer(1,3*mm)],[conf_pill],
-        ],colWidths=[175*mm])
-    except:
+    conf_pill.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GOLD),('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),('LEFTPADDING',(0,0),(-1,-1),4),('RIGHTPADDING',(0,0),(-1,-1),4)]))
+    white_label_name=str(d.get('white_label_firm','')).strip()
+    white_label_logo=str(d.get('white_label_logo','')).strip()
+    prepared_by=white_label_name if white_label_name and white_label_name.upper()!='NA' else 'FinReportAI'
+    if white_label_logo and white_label_logo.upper() not in ('NA','N/A','','NONE'):
+        import urllib.request, tempfile
+        try:
+            from reportlab.platypus import Image as RLImage
+            tmp=tempfile.NamedTemporaryFile(delete=False,suffix='.png')
+            urllib.request.urlretrieve(white_label_logo,tmp.name)
+            logo_img=RLImage(tmp.name,width=60*mm,height=15*mm,kind='proportional')
+            hdr_inner=Table([
+                [logo_img],
+                [Paragraph(str(d.get('business_name','Client Business')),s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
+                [Paragraph(f"Financial Report &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
+                [Spacer(1,3*mm)],[conf_pill],
+            ],colWidths=[175*mm])
+        except:
+            hdr_inner=Table([
+                [Paragraph(white_label_name,s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
+                [Paragraph(str(d.get('business_name','Client Business')),s('wl',fontName='Helvetica',fontSize=14,textColor=colors.HexColor('#9BB5D4'),leading=18))],
+                [Paragraph(f"Financial Report &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
+                [Spacer(1,3*mm)],[conf_pill],
+            ],colWidths=[175*mm])
+    elif white_label_name and white_label_name.upper()!='NA':
         hdr_inner=Table([
             [Paragraph(white_label_name,s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
             [Paragraph(str(d.get('business_name','Client Business')),s('wl',fontName='Helvetica',fontSize=14,textColor=colors.HexColor('#9BB5D4'),leading=18))],
             [Paragraph(f"Financial Report &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
             [Spacer(1,3*mm)],[conf_pill],
         ],colWidths=[175*mm])
-else:
-    hdr_inner=Table([
-        [Paragraph(str(d.get('business_name','Client Business')),s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
-        [Paragraph(f"Financial Report &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
-        [Spacer(1,3*mm)],[conf_pill],
-    ],colWidths=[175*mm])
+    else:
+        hdr_inner=Table([
+            [Paragraph(str(d.get('business_name','Client Business')),s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
+            [Paragraph(f"Financial Report &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
+            [Spacer(1,3*mm)],[conf_pill],
+        ],colWidths=[175*mm])
     hdr_inner.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
     hdr_outer=Table([[hdr_inner]],colWidths=[175*mm])
     hdr_outer.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),NAVY),('TOPPADDING',(0,0),(-1,-1),14),('BOTTOMPADDING',(0,0),(-1,-1),14),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
