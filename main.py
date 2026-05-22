@@ -321,10 +321,11 @@ def build_report(d):
             logo_img=RLImage(tmp.name,width=60*mm,height=15*mm,kind='proportional')
             hdr_inner=Table([
                 [logo_img],
+                [Spacer(1,2*mm)],
                 [Paragraph(str(d.get('business_name','Client Business')),s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
                 [Paragraph(f"Financial Report &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
-                [Spacer(1,3*mm)],[conf_pill],
-            ],colWidths=[175*mm])
+            [Spacer(1,3*mm)],[conf_pill],
+],colWidths=[175*mm])
         except:
             hdr_inner=Table([
                 [Paragraph(white_label_name,s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
