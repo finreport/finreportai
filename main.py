@@ -180,7 +180,7 @@ def exp_card(lbl, val, pct_rev):
     return t
 
 # ── Dynamic P&L table ─────────────────────────────────────────────────────────
-def pl_table(d, periods, revenue_items, cogs_items, opex_items):
+def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
     """Build a P&L table dynamically. periods is a list like ['Feb','Mar','Apr'].
     Each *_items entry is a dict: {label, values:[...per period], total}."""
     ncols = len(periods)
@@ -209,7 +209,11 @@ def pl_table(d, periods, revenue_items, cogs_items, opex_items):
         row = [label(item.get('label','—'), indent=indent, bold=bold)]
         for i in range(ncols):
             v = vals[i] if i < len(vals) else None
-            row.append(money(v, bold))
+            # For bold total rows with no monthly breakdown, show dash not N/A
+            if bold and not has_val(v):
+                row.append(Paragraph('—', ST_BOLD_R if bold else ST_TD))
+            else:
+                row.append(money(v, bold))
         row.append(money(item.get('total'), bold or True))
         return row
 
@@ -223,7 +227,7 @@ def pl_table(d, periods, revenue_items, cogs_items, opex_items):
         for it in revenue_items:
             rows.append(item_row(it))
         # total revenue
-        tr = {'label':'Total Revenue','values':[d.get('revenue_'+p.lower()) for p in periods] if show_periods else [], 'total': d.get('total_revenue')}
+        tr = {'label':'Total Revenue','values':[d.get('revenue_'+k) for k in periods_keys] if show_periods else [], 'total': d.get('total_revenue')}
         rows.append(item_row(tr, bold=True, indent=False)); teal_rows.append(len(rows)-1)
         rows.append(blank())
 
@@ -242,7 +246,7 @@ def pl_table(d, periods, revenue_items, cogs_items, opex_items):
 
     # GROSS PROFIT
     if has_val(d.get('gross_profit')):
-        gp = {'label':'GROSS PROFIT','values':[d.get('gross_profit_'+p.lower()) for p in periods] if show_periods else [],'total':d.get('gross_profit')}
+        gp = {'label':'GROSS PROFIT','values':[d.get('gross_profit_'+k) for k in periods_keys] if show_periods else [],'total':d.get('gross_profit')}
         rows.append(item_row(gp, bold=True, indent=False)); teal_rows.append(len(rows)-1)
         if has_val(d.get('gross_margin')):
             gm_row = [label('Gross Margin %', sub=True)] + [td('—')]*ncols + [td(fmtp(d.get('gross_margin')))]
@@ -263,11 +267,11 @@ def pl_table(d, periods, revenue_items, cogs_items, opex_items):
         rows.append(blank())
 
     # NET PROFIT
-    np_row = {'label':'NET PROFIT','values':[d.get('net_profit_'+p.lower()) for p in periods] if show_periods else [],'total':d.get('net_profit')}
+    np_row = {'label':'NET PROFIT','values':[d.get('net_profit_'+k) for k in periods_keys] if show_periods else [],'total':d.get('net_profit')}
     rows.append(item_row(np_row, bold=True, indent=False))
     net_row_idx = len(rows)-1
     if has_val(d.get('net_margin')):
-        nm_vals = [fmtp(d.get('net_margin_'+p.lower())) for p in periods] if show_periods else []
+        nm_vals = [fmtp(d.get('net_margin_'+k)) for k in periods_keys] if show_periods else []
         nm_row = [label('Net Margin %', sub=True)] + [td(x) for x in nm_vals] + [td(fmtp(d.get('net_margin')))]
         rows.append(nm_row)
 
@@ -334,10 +338,13 @@ def build_report(d):
     # Periods (dynamic — Claude tells us which periods exist)
     periods_raw = d.get('periods','')
     if isinstance(periods_raw, list):
-        periods = [str(p) for p in periods_raw if str(p).strip()]
+        periods_full = [str(p) for p in periods_raw if str(p).strip()]
     else:
-        periods = [p.strip() for p in str(periods_raw).split(',') if p.strip()]
-    periods = periods[:6]  # cap
+        periods_full = [p.strip() for p in str(periods_raw).split(',') if p.strip()]
+    periods_full = periods_full[:6]
+    # Abbreviate to 3 chars for display but keep full names for data key lookups
+    periods = [p[:3] for p in periods_full]
+    periods_keys = [p.lower().replace(' ','') for p in periods_full]
 
     revenue_items = get_list(d, 'revenue_items')
     cogs_items    = get_list(d, 'cogs_items')
@@ -381,7 +388,7 @@ def build_report(d):
         ],colWidths=[175*mm])
     hdr_inner.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
     hdr_outer=Table([[hdr_inner]],colWidths=[175*mm])
-    hdr_outer.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),C_PRIMARY),('TOPPADDING',(0,0),(-1,-1),14),('BOTTOMPADDING',(0,0),(-1,-1),14),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
+    hdr_outer.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),C_PRIMARY),('TOPPADDING',(0,0),(-1,-1),14),('BOTTOMPADDING',(0,0),(-1,-1),14),('LEFTPADDING',(0,0),(-1,-1),8*mm),('RIGHTPADDING',(0,0),(-1,-1),8*mm)]))
     story.append(hdr_outer)
     story.append(Spacer(1,5*mm))
 
@@ -406,7 +413,7 @@ def build_report(d):
     story.append(KeepTogether([kpi_row,Spacer(1,5*mm)]))
 
     # REVENUE CHART + MARGINS — only if we have period revenue
-    period_rev = [d.get('revenue_'+p.lower()) for p in periods]
+    period_rev = [d.get('revenue_'+k) for k in periods_keys]
     if periods and any(has_val(v) for v in period_rev):
         chart=bar_chart(periods, period_rev)
         margin_rows=[
@@ -416,7 +423,7 @@ def build_report(d):
         if has_val(d.get('gross_margin')):
             margin_rows += [[Paragraph('Gross Margin',ST_SMALL)],[margin_bar(d.get('gross_margin'),'Average',TEAL)],[Spacer(1,1*mm)]]
         # net margin by period
-        nm_period = [(p, d.get('net_margin_'+p.lower())) for p in periods if has_val(d.get('net_margin_'+p.lower()))]
+        nm_period = [(p, d.get('net_margin_'+k)) for p,k in zip(periods,periods_keys) if has_val(d.get('net_margin_'+k))]
         if nm_period:
             margin_rows += [[Paragraph('Net Margin by Period',ST_SMALL)]]
             palette=[RED_TEXT,GOLD,GREEN_TEXT,TEAL,colors.HexColor('#0B6E60'),NAVY]
@@ -455,7 +462,7 @@ def build_report(d):
     # P&L TABLE
     if revenue_items or cogs_items or opex_items or has_val(d.get('total_revenue')):
         story.append(KeepTogether([section_header('Full Profit & Loss Statement', C_ACCENT),Spacer(1,3*mm)]))
-        story.append(pl_table(d, periods, revenue_items, cogs_items, opex_items))
+        story.append(pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items))
         story.append(Spacer(1,5*mm))
 
     # KEY TRENDS
@@ -468,7 +475,7 @@ def build_report(d):
 
     # FLAGS
     raw_flags = str(d.get('flags',''))
-    flag_lines = [f.strip() for f in raw_flags.replace('FLAGSEP','\n').split('\n') if '|' in f]
+    flag_lines = [f.strip() for f in raw_flags.replace('FLAGSEP','\n').split('\n') if '|' in f and len(f.strip())>3]
     if flag_lines:
         story.append(KeepTogether([section_header('Flags & Items to Watch', C_ACCENT),Spacer(1,3*mm)]))
         for i,fl in enumerate(flag_lines):
@@ -501,8 +508,15 @@ def build_report(d):
     disclaimer_row = []
     if wl_disclaimer and wl_disclaimer.upper() not in ('NA','N/A','NONE',''):
         disclaimer_row = [Paragraph(wl_disclaimer,s('disc',fontSize=7,textColor=colors.HexColor('#9CA3AF'),alignment=TA_CENTER,leading=10))]
-    main_footer = Paragraph(f"Prepared by {prepared_by}{contact_str} &nbsp;·&nbsp; {str(d.get('period','')).split('—')[0].strip()} &nbsp;·&nbsp; {report_ref} &nbsp;·&nbsp; All figures GBP (£) &nbsp;·&nbsp; Confidential",ST_FOOTER)
-    ft_data = [disclaimer_row + [main_footer]] if disclaimer_row else [[main_footer]]
+    period_short = str(d.get('period','')).split('—')[0].strip()
+    if is_wl and contact_str:
+        line1 = f"Prepared by {prepared_by}{contact_str}"
+        line2 = f"{period_short} &nbsp;·&nbsp; Ref: {report_ref} &nbsp;·&nbsp; Confidential"
+        main_footer = [Paragraph(line1,s('ftxt',fontSize=6,textColor=colors.HexColor('#6B7280'),alignment=TA_CENTER,leading=9)),
+                       Paragraph(line2,s('ftxt2',fontSize=6,textColor=colors.HexColor('#6B7280'),alignment=TA_CENTER,leading=9))]
+    else:
+        main_footer = [Paragraph(f"Prepared by {prepared_by} &nbsp;·&nbsp; {period_short} &nbsp;·&nbsp; Ref: {report_ref} &nbsp;·&nbsp; Confidential",s('ftxt',fontSize=6,textColor=colors.HexColor('#6B7280'),alignment=TA_CENTER,leading=9))]
+    ft_data = [disclaimer_row + main_footer] if disclaimer_row else [main_footer]
     ft=Table(ft_data,colWidths=[175*mm])
     ft.setStyle(TableStyle([('LINEABOVE',(0,0),(-1,0),0.5,BORDER),('TOPPADDING',(0,0),(-1,-1),5),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
     story.append(ft)
