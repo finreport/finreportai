@@ -462,7 +462,7 @@ class PageNumCanvas(canvas.Canvas):
 
 doc.build(story, canvasmaker=PageNumCanvas)
 buf.seek(0)
-return buf
+    return buf
 
 @app.route('/generate', methods=['POST'])
 def generate():
