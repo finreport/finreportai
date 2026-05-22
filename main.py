@@ -7,6 +7,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from reportlab.graphics.shapes import Drawing, Rect, String, Line
+from reportlab.pdfgen import canvas
 
 app = Flask(__name__)
 
@@ -440,7 +441,26 @@ def build_report(d):
     ft.setStyle(TableStyle([('LINEABOVE',(0,0),(-1,0),0.5,BORDER),('TOPPADDING',(0,0),(-1,-1),5),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
     story.append(ft)
 
-    doc.build(story)
+class PageNumCanvas(canvas.Canvas):
+    def __init__(self, *args, **kwargs):
+        canvas.Canvas.__init__(self, *args, **kwargs)
+        self._saved_page_states = []
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+    def save(self):
+        num_pages = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self.draw_page_number(num_pages)
+            canvas.Canvas.showPage(self)
+        canvas.Canvas.save(self)
+    def draw_page_number(self, page_count):
+        self.setFont('Helvetica', 7)
+        self.setFillColor(colors.HexColor('#6B7280'))
+        self.drawCentredString(A4[0]/2, 5*mm, f'Page {self._pageNumber} of {page_count}')
+
+doc.build(story, canvasmaker=PageNumCanvas)
     buf.seek(0)
     return buf
 
