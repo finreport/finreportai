@@ -322,6 +322,7 @@ def build_report(d):
             hdr_inner=Table([
                 [logo_img],
                 [Spacer(1,2*mm)],
+                [Paragraph(white_label_name,s('wln',fontName='Helvetica-Bold',fontSize=16,textColor=WHITE,leading=20))],
                 [Paragraph(str(d.get('business_name','Client Business')),s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
                 [Paragraph(f"Financial Report &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
             [Spacer(1,3*mm)],[conf_pill],
