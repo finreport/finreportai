@@ -163,11 +163,15 @@ def flag_card(num, title, body, severity='WATCH'):
     ]))
     return t
 
-def exp_card(lbl, val, pct_rev):
+def exp_card(lbl, val, pct_rev, trend):
+    trend = str(trend).lower().strip() if trend else 'stable'
+    tc = RED_TEXT if trend=='up' else GREEN_TEXT if trend=='down' else GRAY
+    ts = '▲' if trend=='up' else '▼' if trend=='down' else '●'
     data=[
         [Paragraph(str(lbl),s('el',fontName='Helvetica-Bold',fontSize=8,textColor=NAVY,leading=11))],
         [Paragraph(fmt(val),s('ev',fontName='Helvetica-Bold',fontSize=13,textColor=NAVY,leading=17))],
         [Paragraph(f'{pct_rev:.1f}% of revenue' if pct_rev is not None else '',s('ep',fontSize=7,textColor=GRAY,leading=10))],
+        [Paragraph(f'{ts} {trend.title()}',s('et',fontName='Helvetica-Bold',fontSize=7.5,textColor=tc,leading=10))],
     ]
     t=Table(data,colWidths=[33*mm])
     t.setStyle(TableStyle([
@@ -380,7 +384,7 @@ def build_report(d):
         for it in opex_with_totals[:5]:
             tv = clean(it.get('total'))
             pct = (tv/total_r*100) if (total_r and total_r>0) else None
-            cards.append(exp_card(it.get('label','')[:16], tv, pct))
+            cards.append(exp_card(it.get('label','')[:16], tv, pct, it.get('trend','stable')))
         # pad to keep layout tidy
         exp_row=Table([cards],colWidths=[33*mm]*len(cards))
         exp_row.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
