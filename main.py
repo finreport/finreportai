@@ -294,6 +294,180 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
     t.setStyle(TableStyle(style))
     return t
 
+def comparison_kpi_card(label, current_val, prev_val, is_pct=False):
+    """KPI card showing current value with vs previous and growth arrow."""
+    def fv(v): 
+        if not has_val(v): return 'N/A'
+        return fmtp(v) if is_pct else fmt(v)
+    
+    curr_display = fv(current_val)
+    prev_display = fv(prev_val)
+    
+    # Calculate growth
+    try:
+        cv = clean(current_val); pv = clean(prev_val)
+        if cv is not None and pv is not None and pv != 0:
+            growth = ((cv - pv) / abs(pv)) * 100
+            pos = growth >= 0
+            arrow = '▲' if pos else '▼'
+            growth_str = f"{arrow} {abs(growth):.1f}%"
+            gc = GREEN_TEXT if pos else RED_TEXT
+        else:
+            growth_str = '—'
+            gc = GRAY
+    except:
+        growth_str = '—'
+        gc = GRAY
+
+    growth_s = s('ckg', fontName='Helvetica-Bold', fontSize=7.5, textColor=gc, leading=10, alignment=TA_CENTER)
+    prev_s   = s('ckp', fontSize=7, textColor=GRAY, leading=9, alignment=TA_CENTER)
+
+    data = [
+        [Paragraph(curr_display, ST_KPI_V)],
+        [Paragraph(label, ST_KPI_L)],
+        [Paragraph(growth_str, growth_s)],
+        [Paragraph(f"vs {prev_display}", prev_s)],
+    ]
+    t = Table(data, colWidths=[38*mm])
+    t.setStyle(TableStyle([
+        ('BACKGROUND',(0,0),(-1,-1),WHITE),('BOX',(0,0),(-1,-1),0.75,BORDER),
+        ('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5),
+        ('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),
+    ]))
+    return t
+
+
+def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items,
+                         prev_revenue_items, prev_cogs_items, prev_opex_items, C_ACCENT):
+    """P&L table with current period columns plus a Previous Total and Change % column."""
+    def th(txt, right=True): return Paragraph(txt, ST_TH if right else ST_TH_L)
+    def td(txt, right=True): return Paragraph(str(txt), ST_TD if right else ST_TD_L)
+    def money(v, bold=False): 
+        display = fmt(v) if has_val(v) else '—'
+        return Paragraph(display, ST_BOLD_R if bold else ST_TD)
+    def pct_change(curr, prev, bold=False):
+        try:
+            cv=clean(curr); pv=clean(prev)
+            if cv is not None and pv is not None and pv!=0:
+                ch=((cv-pv)/abs(pv))*100
+                col = GREEN_TEXT if ch>=0 else RED_TEXT
+                txt = f"{'▲' if ch>=0 else '▼'} {abs(ch):.1f}%"
+                st = s('chg',fontName='Helvetica-Bold' if bold else 'Helvetica',fontSize=7.5,textColor=col,alignment=TA_RIGHT,leading=11)
+                return Paragraph(txt,st)
+        except: pass
+        return Paragraph('—',ST_TD)
+    def label(txt, indent=False, bold=False, sub=False):
+        p='    ' if indent else ''
+        st=ST_BOLD if bold else (s('sub',fontSize=7.5,textColor=GRAY,leading=11) if sub else ST_TD_L)
+        return Paragraph(p+txt,st)
+    def cat(txt):
+        ncols_total = len(periods)+3
+        return [Paragraph(txt,s('cat',fontName='Helvetica-Bold',fontSize=7.5,textColor=C_ACCENT,leading=11))] + ['']*(ncols_total-1)
+    def blank():
+        ncols_total = len(periods)+3
+        return [Paragraph(' ',s('sp',fontSize=2,leading=2))] + [' ']*(ncols_total-1)
+
+    ncols = len(periods)
+    prev_period_label = str(d.get('previous_period','Prev'))[:8]
+
+    # Helper to get prev total for a label
+    def get_prev_total(items_list, label_text):
+        for it in items_list:
+            if it.get('label','').lower() == label_text.lower():
+                return it.get('total')
+        return None
+
+    hdr = [th('',False)]
+    for p in periods: hdr.append(th(p[:3]))
+    hdr += [th('Current'), th(prev_period_label), th('Chg %')]
+
+    def item_row(item, prev_items, bold=False, indent=True):
+        vals = item.get('values',[])
+        row = [label(item.get('label','—'),indent=indent,bold=bold)]
+        for i in range(ncols):
+            v = vals[i] if i<len(vals) else None
+            if bold and not has_val(v):
+                row.append(Paragraph('—',ST_BOLD_R if bold else ST_TD))
+            else:
+                row.append(money(v,bold))
+        curr_total = item.get('total')
+        prev_total = get_prev_total(prev_items, item.get('label',''))
+        row.append(money(curr_total,bold))
+        row.append(money(prev_total,bold))
+        row.append(pct_change(curr_total,prev_total,bold))
+        return row
+
+    rows = [hdr]
+    teal_rows=[]
+
+    # REVENUE
+    if revenue_items:
+        rows.append(cat('REVENUE'))
+        for it in revenue_items:
+            rows.append(item_row(it,prev_revenue_items))
+        tr_curr=d.get('total_revenue'); tr_prev=d.get('prev_total_revenue')
+        tr_row=[label('Total Revenue',bold=True)]
+        for k in periods_keys: tr_row.append(money(d.get('revenue_'+k),True))
+        tr_row+=[money(tr_curr,True),money(tr_prev,True),pct_change(tr_curr,tr_prev,True)]
+        rows.append(tr_row); teal_rows.append(len(rows)-1)
+        rows.append(blank())
+
+    # COGS
+    if cogs_items or has_val(d.get('total_cogs')):
+        rows.append(cat('COST OF GOODS SOLD'))
+        for it in cogs_items:
+            rows.append(item_row(it,prev_cogs_items))
+        tc_curr=d.get('total_cogs'); tc_prev=d.get('prev_total_cogs')
+        rows.append([label('Total COGS',bold=True)]+['—']*ncols+[money(tc_curr,True),money(tc_prev,True),pct_change(tc_curr,tc_prev,True)])
+        teal_rows.append(len(rows)-1)
+        rows.append(blank())
+
+    # GROSS PROFIT
+    if has_val(d.get('gross_profit')):
+        gp_curr=d.get('gross_profit'); gp_prev=d.get('prev_gross_profit')
+        rows.append([label('GROSS PROFIT',bold=True)]+[money(d.get('gross_profit_'+k),True) for k in periods_keys]+[money(gp_curr,True),money(gp_prev,True),pct_change(gp_curr,gp_prev,True)])
+        teal_rows.append(len(rows)-1)
+        if has_val(d.get('gross_margin')):
+            rows.append([label('Gross Margin %',sub=True)]+['—']*ncols+[td(fmtp(d.get('gross_margin'))),td(fmtp(d.get('prev_gross_margin'))),td('—')])
+        rows.append(blank())
+
+    # OPEX
+    if opex_items or has_val(d.get('total_opex')):
+        rows.append(cat('OPERATING EXPENSES'))
+        for it in opex_items:
+            rows.append(item_row(it,prev_opex_items))
+        to_curr=d.get('total_opex'); to_prev=d.get('prev_total_opex')
+        rows.append([label('Total OpEx',bold=True)]+['—']*ncols+[money(to_curr,True),money(to_prev,True),pct_change(to_curr,to_prev,True)])
+        teal_rows.append(len(rows)-1)
+        rows.append(blank())
+
+    # NET PROFIT
+    np_curr=d.get('net_profit'); np_prev=d.get('prev_net_profit')
+    np_row=[label('NET PROFIT',bold=True)]
+    for k in periods_keys: np_row.append(money(d.get('net_profit_'+k),True))
+    np_row+=[money(np_curr,True),money(np_prev,True),pct_change(np_curr,np_prev,True)]
+    rows.append(np_row)
+    net_idx=len(rows)-1
+    if has_val(d.get('net_margin')):
+        rows.append([label('Net Margin %',sub=True)]+[td(fmtp(d.get('net_margin_'+k))) for k in periods_keys]+[td(fmtp(d.get('net_margin'))),td(fmtp(d.get('prev_net_margin'))),td('—')])
+
+    period_cw = min(22*mm, 60*mm/max(ncols,1))
+    cw = [60*mm]+[period_cw]*ncols+[24*mm,24*mm,20*mm]
+    t=Table(rows,colWidths=cw,repeatRows=1)
+    style_cmds=[
+        ('BACKGROUND',(0,0),(-1,0),NAVY),
+        ('ROWBACKGROUNDS',(0,1),(-1,-1),[WHITE,OFFWHITE]),
+        ('LINEBELOW',(0,0),(-1,0),1,C_ACCENT),
+        ('BACKGROUND',(0,net_idx),(-1,net_idx),colors.HexColor('#FFF7E6')),
+        ('LINEABOVE',(0,net_idx),(-1,net_idx),1.5,NAVY),
+        ('TOPPADDING',(0,0),(-1,-1),3),('BOTTOMPADDING',(0,0),(-1,-1),3),
+        ('LEFTPADDING',(0,0),(-1,-1),4),('RIGHTPADDING',(0,0),(-1,-1),4),
+        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+    ]
+    for ti in teal_rows:
+        style_cmds.append(('BACKGROUND',(0,ti),(-1,ti),TEAL_LITE))
+    t.setStyle(TableStyle(style_cmds))
+    return t
 def build_report(d):
     buf=io.BytesIO()
 
@@ -349,6 +523,10 @@ def build_report(d):
     revenue_items = get_list(d, 'revenue_items')
     cogs_items    = get_list(d, 'cogs_items')
     opex_items    = get_list(d, 'opex_items')
+    prev_revenue_items = get_list(d, 'prev_revenue_items')
+    prev_cogs_items    = get_list(d, 'prev_cogs_items')
+    prev_opex_items    = get_list(d, 'prev_opex_items')
+    is_comparison = has_val(d.get('prev_total_revenue')) and str(d.get('prev_total_revenue','')).upper() not in ('NA','N/A','NONE','')
 
     # HEADER
     conf_pill=Table([[Paragraph('CONFIDENTIAL',s('cf',fontName='Helvetica-Bold',fontSize=7,textColor=NAVY,leading=9,alignment=TA_CENTER))]],colWidths=[22*mm])
@@ -400,14 +578,22 @@ def build_report(d):
     intro_parts += [Paragraph(str(d.get('executive_summary','No summary provided.')),ST_BODY),Spacer(1,4*mm)]
     story.append(KeepTogether(intro_parts))
 
-    # KPI CARDS — only show ones with data
-    kpi_defs = [
-        (fmt(d.get('total_revenue')),'Total Revenue', d.get('period','')),
-        (fmt(d.get('net_profit')),'Net Profit', d.get('period','')),
-        (fmtp(d.get('gross_margin')),'Gross Margin','Average'),
-        (fmtp(d.get('net_margin')),'Net Margin','Average'),
-    ]
-    kpis = [kpi_card(v,l,sub) for (v,l,sub) in kpi_defs]
+    # KPI CARDS — comparison or standard
+    if is_comparison:
+        kpis = [
+            comparison_kpi_card('Total Revenue', d.get('total_revenue'), d.get('prev_total_revenue'), False),
+            comparison_kpi_card('Net Profit', d.get('net_profit'), d.get('prev_net_profit'), False),
+            comparison_kpi_card('Gross Margin', d.get('gross_margin'), d.get('prev_gross_margin'), True),
+            comparison_kpi_card('Net Margin', d.get('net_margin'), d.get('prev_net_margin'), True),
+        ]
+    else:
+        kpi_defs = [
+            (fmt(d.get('total_revenue')),'Total Revenue', d.get('period','')),
+            (fmt(d.get('net_profit')),'Net Profit', d.get('period','')),
+            (fmtp(d.get('gross_margin')),'Gross Margin','Average'),
+            (fmtp(d.get('net_margin')),'Net Margin','Average'),
+        ]
+        kpis = [kpi_card(v,l,sub) for (v,l,sub) in kpi_defs]
     kpi_row=Table([kpis],colWidths=[38*mm]*4)
     kpi_row.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
     story.append(KeepTogether([kpi_row,Spacer(1,5*mm)]))
@@ -462,7 +648,10 @@ def build_report(d):
     # P&L TABLE
     if revenue_items or cogs_items or opex_items or has_val(d.get('total_revenue')):
         story.append(KeepTogether([section_header('Full Profit & Loss Statement', C_ACCENT),Spacer(1,3*mm)]))
-        story.append(pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items))
+        if is_comparison:
+            story.append(comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, prev_revenue_items, prev_cogs_items, prev_opex_items, C_ACCENT))
+        else:
+            story.append(pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items))
         story.append(Spacer(1,5*mm))
 
     # KEY TRENDS
@@ -562,3 +751,4 @@ def health():
 
 if __name__=='__main__':
     app.run(host='0.0.0.0',port=8000)
+
