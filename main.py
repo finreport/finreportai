@@ -461,8 +461,8 @@ class PageNumCanvas(canvas.Canvas):
         self.drawCentredString(A4[0]/2, 5*mm, f'Page {self._pageNumber} of {page_count}')
 
 doc.build(story, canvasmaker=PageNumCanvas)
-    buf.seek(0)
-    return buf
+buf.seek(0)
+return buf
 
 @app.route('/generate', methods=['POST'])
 def generate():
