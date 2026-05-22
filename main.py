@@ -139,17 +139,26 @@ def section_header(title):
     ]))
     return t
 
-def flag_card(num, body):
-    data=[[[Paragraph('!',s('ico',fontName='Helvetica-Bold',fontSize=10,textColor=AMBER_TEXT,alignment=TA_CENTER,leading=12)),
-             Paragraph('Watch',s('sev',fontName='Helvetica-Bold',fontSize=7,textColor=AMBER_TEXT,alignment=TA_CENTER,leading=9))],
-            [Paragraph(f'{num}. Item to Watch',s('fh',fontName='Helvetica-Bold',fontSize=8,textColor=DARK,leading=12)),Spacer(1,2),Paragraph(body,ST_FLAG_B)]]]
-    t=Table(data,colWidths=[14*mm,161*mm])
+def flag_card(num, title, body, severity):
+    color_map = {
+        'POSITIVE': (GREEN_TEXT, GREEN_SOFT, '✓', 'Positive'),
+        'WATCH':    (AMBER_TEXT, AMBER_SOFT, '!', 'Watch'),
+        'RISK':     (RED_TEXT,   RED_SOFT,   '✕', 'Risk'),
+        'INFO':     (TEAL,       TEAL_LITE,  'i', 'Info'),
+    }
+    tc, bg, icon, label = color_map.get(severity.upper(), (AMBER_TEXT, AMBER_SOFT, '!', 'Watch'))
+    icon_s = s('ico', fontName='Helvetica-Bold', fontSize=10, textColor=tc, alignment=TA_CENTER, leading=12)
+    sev_s  = s('sev', fontName='Helvetica-Bold', fontSize=7,  textColor=tc, alignment=TA_CENTER, leading=9)
+    head_s = s('fh',  fontName='Helvetica-Bold', fontSize=8,  textColor=DARK, leading=12)
+    data = [[[Paragraph(icon, icon_s), Paragraph(label, sev_s)],
+              [Paragraph(f'{num}. {title}', head_s), Spacer(1, 2), Paragraph(body, ST_FLAG_B)]]]
+    t = Table(data, colWidths=[14*mm, 161*mm])
     t.setStyle(TableStyle([
-        ('BACKGROUND',(0,0),(0,0),AMBER_SOFT),('VALIGN',(0,0),(-1,-1),'TOP'),
-        ('TOPPADDING',(0,0),(-1,-1),6),('BOTTOMPADDING',(0,0),(-1,-1),6),
-        ('LEFTPADDING',(0,0),(0,0),3),('RIGHTPADDING',(0,0),(0,0),3),
-        ('LEFTPADDING',(1,0),(1,0),8),('RIGHTPADDING',(1,0),(1,0),4),
-        ('BOX',(0,0),(-1,-1),0.5,BORDER),
+        ('BACKGROUND', (0,0), (0,0), bg), ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('TOPPADDING', (0,0), (-1,-1), 6), ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('LEFTPADDING', (0,0), (0,0), 3),  ('RIGHTPADDING', (0,0), (0,0), 3),
+        ('LEFTPADDING', (1,0), (1,0), 8),  ('RIGHTPADDING', (1,0), (1,0), 4),
+        ('BOX', (0,0), (-1,-1), 0.5, BORDER),
     ]))
     return t
 
@@ -279,22 +288,27 @@ def pl_table(d, periods, revenue_items, cogs_items, opex_items):
     t.setStyle(TableStyle(style))
     return t
 
-def build_report(d):
-    buf=io.BytesIO()
-    doc=SimpleDocTemplate(buf,pagesize=A4,leftMargin=17*mm,rightMargin=17*mm,topMargin=0,bottomMargin=12*mm)
-    story=[]
-
-    # Periods (dynamic — Claude tells us which periods exist)
-    periods_raw = d.get('periods','')
-    if isinstance(periods_raw, list):
-        periods = [str(p) for p in periods_raw if str(p).strip()]
-    else:
-        periods = [p.strip() for p in str(periods_raw).split(',') if p.strip()]
-    periods = periods[:6]  # cap
-
-    revenue_items = get_list(d, 'revenue_items')
-    cogs_items    = get_list(d, 'cogs_items')
-    opex_items    = get_list(d, 'opex_items')
+# FLAGS
+    raw_flags = str(d.get('flags', ''))
+    flag_lines = [f.strip() for f in raw_flags.split('\n') if '|' in f]
+    if flag_lines:
+        story.append(KeepTogether([section_header('Flags & Items to Watch'), Spacer(1, 3*mm)]))
+        for i, fl in enumerate(flag_lines):
+            parts = fl.split('|')
+            if len(parts) >= 3:
+                severity = parts[0].strip()
+                title    = parts[1].strip()
+                body     = parts[2].strip()
+            elif len(parts) == 2:
+                severity = parts[0].strip()
+                title    = 'Flag'
+                body     = parts[1].strip()
+            else:
+                severity = 'WATCH'
+                title    = 'Flag'
+                body     = fl.strip()
+            story.append(KeepTogether([flag_card(i+1, title, body, severity), Spacer(1, 2*mm)]))
+        story.append(Spacer(1, 4*mm))
 
     # HEADER
     conf_pill=Table([[Paragraph('CONFIDENTIAL',s('cf',fontName='Helvetica-Bold',fontSize=7,textColor=NAVY,leading=9,alignment=TA_CENTER))]],colWidths=[22*mm])
