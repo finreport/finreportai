@@ -290,7 +290,7 @@ def pl_table(d, periods, revenue_items, cogs_items, opex_items):
 
 # FLAGS
     raw_flags = str(d.get('flags', ''))
-    flag_lines = [f.strip() for f in raw_flags.split('\n') if '|' in f]
+    flag_lines = [f.strip() for f in raw_flags.replace('FLAGSEP', '\n').split('\n') if '|' in f]
     if flag_lines:
         story.append(KeepTogether([section_header('Flags & Items to Watch'), Spacer(1, 3*mm)]))
         for i, fl in enumerate(flag_lines):
