@@ -130,11 +130,12 @@ def kpi_card(value, label, sub):
     ]))
     return t
 
-def section_header(title):
+def section_header(title, accent=None):
+    ac = accent if accent is not None else TEAL
     data=[[Paragraph(title.upper(),ST_SECTION)]]
     t=Table(data,colWidths=[175*mm])
     t.setStyle(TableStyle([
-        ('LINEBELOW',(0,0),(-1,-1),1,TEAL),
+        ('LINEBELOW',(0,0),(-1,-1),1,ac),
         ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),3),
         ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
     ]))
@@ -291,6 +292,42 @@ def pl_table(d, periods, revenue_items, cogs_items, opex_items):
 
 def build_report(d):
     buf=io.BytesIO()
+
+    # ── White label settings ──────────────────────────────────────────────
+    wl_name     = str(d.get('white_label_firm','')).strip()
+    wl_logo     = str(d.get('wl_logo','')).strip()
+    wl_primary  = str(d.get('white_label_primary_colour','')).strip()
+    wl_accent   = str(d.get('white_label_accent_colour','')).strip()
+    wl_tagline  = str(d.get('white_label_tagline','')).strip()
+    wl_contact  = str(d.get('white_label_contact','')).strip()
+    wl_disclaimer = str(d.get('white_label_disclaimer','')).strip()
+    is_wl = bool(wl_name and wl_name.upper() not in ('NA','N/A','NONE',''))
+    prepared_by = wl_name if is_wl else 'FinReportAI'
+
+    # Dynamic colours
+    def safe_colour(hex_val, fallback):
+        try:
+            if hex_val and hex_val.upper() not in ('NA','N/A','','NONE'):
+                h = hex_val.strip().lstrip('#')
+                if len(h) == 6:
+                    return colors.HexColor('#'+h)
+        except: pass
+        return fallback
+    C_PRIMARY = safe_colour(wl_primary, NAVY)
+    C_ACCENT  = safe_colour(wl_accent,  TEAL)
+
+    # Report reference number
+    import hashlib, datetime
+    ref_hash = hashlib.md5(f"{d.get('business_name','')}{datetime.datetime.now().isoformat()}".encode()).hexdigest()[:8].upper()
+    report_ref = f"REF-{ref_hash}"
+
+    # Download filename
+    bname = str(d.get('business_name','Report')).replace(' ','_').replace('&','and')
+    period_safe = str(d.get('period','')).split('—')[0].strip().replace(' ','_')
+    firm_safe = prepared_by.replace(' ','_').replace('&','and')
+    download_name = f"{firm_safe}_{bname}_{period_safe}.pdf" if is_wl else f"FinReportAI_{bname}_{period_safe}.pdf"
+
+    d['_download_name'] = download_name
     doc=SimpleDocTemplate(buf,pagesize=A4,leftMargin=17*mm,rightMargin=17*mm,topMargin=0,bottomMargin=12*mm)
     story=[]
 
@@ -309,38 +346,33 @@ def build_report(d):
     # HEADER
     conf_pill=Table([[Paragraph('CONFIDENTIAL',s('cf',fontName='Helvetica-Bold',fontSize=7,textColor=NAVY,leading=9,alignment=TA_CENTER))]],colWidths=[22*mm])
     conf_pill.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GOLD),('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),('LEFTPADDING',(0,0),(-1,-1),4),('RIGHTPADDING',(0,0),(-1,-1),4)]))
-    white_label_name=str(d.get('white_label_firm','')).strip()
-    white_label_logo=str(d.get('white_label_logo','')).strip()
-    prepared_by=white_label_name if white_label_name and white_label_name.upper()!='NA' else 'FinReportAI'
-    if white_label_logo and white_label_logo.upper() not in ('NA','N/A','','NONE'):
+    # white label vars already set above
+    if wl_logo and wl_logo.upper() not in ('NA','N/A','','NONE'):
         import urllib.request, tempfile
         try:
             from reportlab.platypus import Image as RLImage
             tmp=tempfile.NamedTemporaryFile(delete=False,suffix='.png')
-            urllib.request.urlretrieve(white_label_logo,tmp.name)
+            urllib.request.urlretrieve(wl_logo,tmp.name)
             logo_img=RLImage(tmp.name,width=60*mm,height=15*mm,kind='proportional')
             hdr_inner=Table([
                 [logo_img],
-                [Spacer(1,2*mm)],
-                [Paragraph(white_label_name,s('wln',fontName='Helvetica-Bold',fontSize=16,textColor=WHITE,leading=20))],
                 [Paragraph(str(d.get('business_name','Client Business')),s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
                 [Paragraph(f"Financial Report &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
-            [Spacer(1,3*mm)],[conf_pill],
-],colWidths=[175*mm])
+                [Spacer(1,3*mm)],[conf_pill],
+            ],colWidths=[175*mm])
         except:
             hdr_inner=Table([
-                [Paragraph(white_label_name,s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
+                [Paragraph(wl_name,s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
                 [Paragraph(str(d.get('business_name','Client Business')),s('wl',fontName='Helvetica',fontSize=14,textColor=colors.HexColor('#9BB5D4'),leading=18))],
                 [Paragraph(f"Financial Report &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
                 [Spacer(1,3*mm)],[conf_pill],
             ],colWidths=[175*mm])
-    elif white_label_name and white_label_name.upper()!='NA':
-        hdr_inner=Table([
-            [Paragraph(white_label_name,s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
-            [Paragraph(str(d.get('business_name','Client Business')),s('wl',fontName='Helvetica',fontSize=14,textColor=colors.HexColor('#9BB5D4'),leading=18))],
-            [Paragraph(f"Financial Report &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
-            [Spacer(1,3*mm)],[conf_pill],
-        ],colWidths=[175*mm])
+    elif is_wl:
+        tagline_para = [Paragraph(wl_tagline, s('tg',fontSize=10,textColor=colors.HexColor('#9BB5D4'),leading=13))] if wl_tagline and wl_tagline.upper() not in ('NA','N/A','NONE','') else []
+        hdr_rows = [[Paragraph(wl_name,s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))]]
+        if tagline_para: hdr_rows.append(tagline_para)
+        hdr_rows += [[Paragraph(str(d.get('business_name','Client Business')),s('wl',fontName='Helvetica',fontSize=14,textColor=colors.HexColor('#9BB5D4'),leading=18))],[Paragraph(f"Financial Report &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],[Spacer(1,3*mm)],[conf_pill]]
+        hdr_inner=Table(hdr_rows,colWidths=[175*mm])
     else:
         hdr_inner=Table([
             [Paragraph(str(d.get('business_name','Client Business')),s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
@@ -349,16 +381,17 @@ def build_report(d):
         ],colWidths=[175*mm])
     hdr_inner.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
     hdr_outer=Table([[hdr_inner]],colWidths=[175*mm])
-    hdr_outer.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),NAVY),('TOPPADDING',(0,0),(-1,-1),14),('BOTTOMPADDING',(0,0),(-1,-1),14),('LEFTPADDING',(0,0),(-1,-1),8*mm),('RIGHTPADDING',(0,0),(-1,-1),8*mm)]))
+    hdr_outer.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),C_PRIMARY),('TOPPADDING',(0,0),(-1,-1),14),('BOTTOMPADDING',(0,0),(-1,-1),14),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
     story.append(hdr_outer)
     story.append(Spacer(1,5*mm))
 
     # EXECUTIVE SUMMARY
-    story.append(KeepTogether([
-        section_header('Executive Summary'),Spacer(1,3*mm),
-        Paragraph(str(d.get('executive_summary','No summary provided.')),ST_BODY),
-        Spacer(1,4*mm),
-    ]))
+    intro_parts = [section_header('Executive Summary', C_ACCENT),Spacer(1,3*mm)]
+    if is_wl:
+        intro_text = f"This report has been prepared by {wl_name} for {d.get('business_name','the client')} covering the period {str(d.get('period','')).split('—')[0].strip()}. It is intended for internal management use only."
+        intro_parts += [Paragraph(intro_text, s('intro',fontSize=8.5,textColor=colors.HexColor('#6B7280'),leading=13,fontName='Helvetica')),Spacer(1,3*mm)]
+    intro_parts += [Paragraph(str(d.get('executive_summary','No summary provided.')),ST_BODY),Spacer(1,4*mm)]
+    story.append(KeepTogether(intro_parts))
 
     # KPI CARDS — only show ones with data
     kpi_defs = [
@@ -403,7 +436,7 @@ def build_report(d):
         m_t.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
         combined=Table([[chart,m_t]],colWidths=[100*mm,75*mm])
         combined.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
-        story.append(KeepTogether([section_header('Revenue Performance & Margins'),Spacer(1,3*mm),combined,Spacer(1,5*mm)]))
+        story.append(KeepTogether([section_header('Revenue Performance & Margins', C_ACCENT),Spacer(1,3*mm),combined,Spacer(1,5*mm)]))
 
     # EXPENSE BREAKDOWN CARDS — dynamic from opex_items
     total_r = clean(d.get('total_revenue'))
@@ -417,18 +450,18 @@ def build_report(d):
         # pad to keep layout tidy
         exp_row=Table([cards],colWidths=[33*mm]*len(cards))
         exp_row.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
-        story.append(KeepTogether([section_header('Operating Expense Breakdown'),Spacer(1,3*mm),exp_row,Spacer(1,5*mm)]))
+        story.append(KeepTogether([section_header('Operating Expense Breakdown', C_ACCENT),Spacer(1,3*mm),exp_row,Spacer(1,5*mm)]))
 
     # P&L TABLE
     if revenue_items or cogs_items or opex_items or has_val(d.get('total_revenue')):
-        story.append(KeepTogether([section_header('Full Profit & Loss Statement'),Spacer(1,3*mm)]))
+        story.append(KeepTogether([section_header('Full Profit & Loss Statement', C_ACCENT),Spacer(1,3*mm)]))
         story.append(pl_table(d, periods, revenue_items, cogs_items, opex_items))
         story.append(Spacer(1,5*mm))
 
     # KEY TRENDS
     if d.get('analysis'):
         story.append(KeepTogether([
-            section_header('Key Trends & Analysis'),Spacer(1,3*mm),
+            section_header('Key Trends & Analysis', C_ACCENT),Spacer(1,3*mm),
             Paragraph(str(d.get('analysis')),ST_BODY),
             Spacer(1,5*mm),
         ]))
@@ -437,7 +470,7 @@ def build_report(d):
     raw_flags = str(d.get('flags',''))
     flag_lines = [f.strip() for f in raw_flags.replace('FLAGSEP','\n').split('\n') if '|' in f]
     if flag_lines:
-        story.append(KeepTogether([section_header('Flags & Items to Watch'),Spacer(1,3*mm)]))
+        story.append(KeepTogether([section_header('Flags & Items to Watch', C_ACCENT),Spacer(1,3*mm)]))
         for i,fl in enumerate(flag_lines):
             parts = fl.split('|')
             if len(parts) >= 3:
@@ -458,13 +491,18 @@ def build_report(d):
     # OUTLOOK
     if d.get('outlook'):
         story.append(KeepTogether([
-            section_header('Outlook'),Spacer(1,3*mm),
+            section_header('Outlook', C_ACCENT),Spacer(1,3*mm),
             Paragraph(str(d.get('outlook')),ST_BODY),
             Spacer(1,4*mm),
         ]))
 
     # FOOTER
-    ft_data=[[Paragraph(f"Prepared by {prepared_by} &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; All figures GBP (£) &nbsp;·&nbsp; Confidential",ST_FOOTER)]]
+    contact_str = f" &nbsp;·&nbsp; {wl_contact}" if wl_contact and wl_contact.upper() not in ('NA','N/A','NONE','') else ''
+    disclaimer_row = []
+    if wl_disclaimer and wl_disclaimer.upper() not in ('NA','N/A','NONE',''):
+        disclaimer_row = [Paragraph(wl_disclaimer,s('disc',fontSize=7,textColor=colors.HexColor('#9CA3AF'),alignment=TA_CENTER,leading=10))]
+    main_footer = Paragraph(f"Prepared by {prepared_by}{contact_str} &nbsp;·&nbsp; {str(d.get('period','')).split('—')[0].strip()} &nbsp;·&nbsp; {report_ref} &nbsp;·&nbsp; All figures GBP (£) &nbsp;·&nbsp; Confidential",ST_FOOTER)
+    ft_data = [disclaimer_row + [main_footer]] if disclaimer_row else [[main_footer]]
     ft=Table(ft_data,colWidths=[175*mm])
     ft.setStyle(TableStyle([('LINEABOVE',(0,0),(-1,0),0.5,BORDER),('TOPPADDING',(0,0),(-1,-1),5),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
     story.append(ft)
@@ -496,7 +534,8 @@ def build_report(d):
 def generate():
     data=request.get_json(force=True)
     buf=build_report(data)
-    return send_file(buf,mimetype='application/pdf',as_attachment=True,download_name='report.pdf')
+    dn = data.get('_download_name','report.pdf')
+    return send_file(buf,mimetype='application/pdf',as_attachment=True,download_name=dn)
 
 @app.route('/healthz')
 def health():
