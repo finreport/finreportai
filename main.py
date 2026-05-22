@@ -121,7 +121,7 @@ def margin_bar(pct_val, label, color, w=65, h=10):
 def kpi_card(value, label, sub):
     sub_s = s('cs', fontName='Helvetica-Bold', fontSize=7.5, textColor=TEAL, leading=10, alignment=TA_CENTER)
     short_sub = str(sub).split('—')[0].strip() if '—' in str(sub) else str(sub)
-data=[[Paragraph(str(value),ST_KPI_V)],[Paragraph(str(label),ST_KPI_L)],[Paragraph(short_sub,sub_s)]]
+    data=[[Paragraph(str(value),ST_KPI_V)],[Paragraph(str(label),ST_KPI_L)],[Paragraph(short_sub,sub_s)]]
     t=Table(data,colWidths=[38*mm])
     t.setStyle(TableStyle([
         ('BACKGROUND',(0,0),(-1,-1),WHITE),('BOX',(0,0),(-1,-1),0.75,BORDER),
