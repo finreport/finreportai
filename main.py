@@ -7,7 +7,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from reportlab.graphics.shapes import Drawing, Rect, String, Line
-from reportlab.pdfgen import canvas
+from reportlab.pdfgen import canvas as rl_canvas
 
 app = Flask(__name__)
 
@@ -121,8 +121,7 @@ def margin_bar(pct_val, label, color, w=65, h=10):
 
 def kpi_card(value, label, sub):
     sub_s = s('cs', fontName='Helvetica-Bold', fontSize=7.5, textColor=TEAL, leading=10, alignment=TA_CENTER)
-    short_sub = str(sub).split('—')[0].strip() if '—' in str(sub) else str(sub)
-    data=[[Paragraph(str(value),ST_KPI_V)],[Paragraph(str(label),ST_KPI_L)],[Paragraph(short_sub,sub_s)]]
+    data=[[Paragraph(str(value),ST_KPI_V)],[Paragraph(str(label),ST_KPI_L)],[Paragraph(str(sub),sub_s)]]
     t=Table(data,colWidths=[38*mm])
     t.setStyle(TableStyle([
         ('BACKGROUND',(0,0),(-1,-1),WHITE),('BOX',(0,0),(-1,-1),0.75,BORDER),
@@ -164,15 +163,11 @@ def flag_card(num, title, body, severity='WATCH'):
     ]))
     return t
 
-def exp_card(lbl, val, pct_rev, trend):
-    trend = str(trend).lower().strip() if trend else 'stable'
-    tc = RED_TEXT if trend=='up' else GREEN_TEXT if trend=='down' else GRAY
-    ts = '▲' if trend=='up' else '▼' if trend=='down' else '●'
+def exp_card(lbl, val, pct_rev):
     data=[
         [Paragraph(str(lbl),s('el',fontName='Helvetica-Bold',fontSize=8,textColor=NAVY,leading=11))],
         [Paragraph(fmt(val),s('ev',fontName='Helvetica-Bold',fontSize=13,textColor=NAVY,leading=17))],
         [Paragraph(f'{pct_rev:.1f}% of revenue' if pct_rev is not None else '',s('ep',fontSize=7,textColor=GRAY,leading=10))],
-        [Paragraph(f'{ts} {trend.title()}',s('et',fontName='Helvetica-Bold',fontSize=7.5,textColor=tc,leading=10))],
     ]
     t=Table(data,colWidths=[33*mm])
     t.setStyle(TableStyle([
@@ -316,7 +311,7 @@ def build_report(d):
     conf_pill.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GOLD),('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),('LEFTPADDING',(0,0),(-1,-1),4),('RIGHTPADDING',(0,0),(-1,-1),4)]))
     hdr_inner=Table([
         [Paragraph(str(d.get('business_name','Client Business')),s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
-        [Paragraph(f"{d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
+        [Paragraph(f"Financial Report &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
         [Spacer(1,3*mm)],[conf_pill],
     ],colWidths=[175*mm])
     hdr_inner.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
@@ -385,7 +380,7 @@ def build_report(d):
         for it in opex_with_totals[:5]:
             tv = clean(it.get('total'))
             pct = (tv/total_r*100) if (total_r and total_r>0) else None
-            cards.append(exp_card(it.get('label','')[:16], tv, pct, it.get('trend','stable')))
+            cards.append(exp_card(it.get('label','')[:16], tv, pct))
         # pad to keep layout tidy
         exp_row=Table([cards],colWidths=[33*mm]*len(cards))
         exp_row.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
@@ -441,27 +436,27 @@ def build_report(d):
     ft.setStyle(TableStyle([('LINEABOVE',(0,0),(-1,0),0.5,BORDER),('TOPPADDING',(0,0),(-1,-1),5),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
     story.append(ft)
 
-class PageNumCanvas(canvas.Canvas):
-    def __init__(self, *args, **kwargs):
-        canvas.Canvas.__init__(self, *args, **kwargs)
-        self._saved_page_states = []
-    def showPage(self):
-        self._saved_page_states.append(dict(self.__dict__))
-        self._startPage()
-    def save(self):
-        num_pages = len(self._saved_page_states)
-        for state in self._saved_page_states:
-            self.__dict__.update(state)
-            self.draw_page_number(num_pages)
-            canvas.Canvas.showPage(self)
-        canvas.Canvas.save(self)
-    def draw_page_number(self, page_count):
-        self.setFont('Helvetica', 7)
-        self.setFillColor(colors.HexColor('#6B7280'))
-        self.drawCentredString(A4[0]/2, 5*mm, f'Page {self._pageNumber} of {page_count}')
+    class PageNumCanvas(rl_canvas.Canvas):
+        def __init__(self, *args, **kwargs):
+            rl_canvas.Canvas.__init__(self, *args, **kwargs)
+            self._saved_page_states = []
+        def showPage(self):
+            self._saved_page_states.append(dict(self.__dict__))
+            self._startPage()
+        def save(self):
+            num_pages = len(self._saved_page_states)
+            for state in self._saved_page_states:
+                self.__dict__.update(state)
+                self.draw_page_number(num_pages)
+                rl_canvas.Canvas.showPage(self)
+            rl_canvas.Canvas.save(self)
+        def draw_page_number(self, page_count):
+            self.setFont('Helvetica', 7)
+            self.setFillColor(colors.HexColor('#6B7280'))
+            self.drawCentredString(A4[0]/2, 5*mm, f'Page {self._pageNumber} of {page_count}')
 
-doc.build(story, canvasmaker=PageNumCanvas)
-buf.seek(0)
+    doc.build(story, canvasmaker=PageNumCanvas)
+    buf.seek(0)
     return buf
 
 @app.route('/generate', methods=['POST'])
