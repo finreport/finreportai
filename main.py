@@ -516,8 +516,13 @@ def build_report(d):
                        Paragraph(line2,s('ftxt2',fontSize=6,textColor=colors.HexColor('#6B7280'),alignment=TA_CENTER,leading=9))]
     else:
         main_footer = [Paragraph(f"Prepared by {prepared_by} &nbsp;·&nbsp; {period_short} &nbsp;·&nbsp; Ref: {report_ref} &nbsp;·&nbsp; Confidential",s('ftxt',fontSize=6,textColor=colors.HexColor('#6B7280'),alignment=TA_CENTER,leading=9))]
-    ft_data = [disclaimer_row + main_footer] if disclaimer_row else [main_footer]
-    ft=Table(ft_data,colWidths=[175*mm])
+    ft_rows = []
+    if disclaimer_row:
+        for item in disclaimer_row:
+            ft_rows.append([item])
+    for item in main_footer:
+        ft_rows.append([item])
+    ft=Table(ft_rows,colWidths=[175*mm])
     ft.setStyle(TableStyle([('LINEABOVE',(0,0),(-1,0),0.5,BORDER),('TOPPADDING',(0,0),(-1,-1),5),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
     story.append(ft)
 
