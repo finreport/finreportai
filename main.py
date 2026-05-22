@@ -310,7 +310,7 @@ def build_report(d):
     conf_pill.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GOLD),('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),('LEFTPADDING',(0,0),(-1,-1),4),('RIGHTPADDING',(0,0),(-1,-1),4)]))
     hdr_inner=Table([
         [Paragraph(str(d.get('business_name','Client Business')),s('ht',fontName='Helvetica-Bold',fontSize=22,textColor=WHITE,leading=28))],
-        [Paragraph(f"Financial Report &nbsp;·&nbsp; {d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
+        [Paragraph(f"{d.get('period','')} &nbsp;·&nbsp; GBP (£)",s('hs',fontSize=9.5,textColor=colors.HexColor('#9BB5D4'),leading=14))],
         [Spacer(1,3*mm)],[conf_pill],
     ],colWidths=[175*mm])
     hdr_inner.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
