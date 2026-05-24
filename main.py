@@ -616,6 +616,34 @@ def glossary_section(C_ACCENT):
     except Exception:
         return None
 
+def health_kpi_card(score):
+    """Health score as a KPI card — coloured to match severity."""
+    try:
+        sv = clean(score)
+        if sv is None: return None
+        sv = max(1, min(10, sv))
+        if sv >= 8:   tc, bg, label = GREEN_TEXT, GREEN_SOFT,  'Excellent'
+        elif sv >= 5: tc, bg, label = AMBER_TEXT, AMBER_SOFT,  'Good'
+        else:         tc, bg, label = RED_TEXT,   RED_SOFT,    'Needs Attention'
+        val_s = s('hv', fontName=FONT_SERIF_BOLD, fontSize=17, textColor=tc, leading=21, alignment=TA_CENTER)
+        lbl_s = s('hl', fontName=FONT_SANS, fontSize=7, textColor=tc, leading=9, alignment=TA_CENTER)
+        sub_s = s('hs2', fontName=FONT_SANS_BOLD, fontSize=7.5, textColor=tc, leading=10, alignment=TA_CENTER)
+        data = [
+            [Paragraph(f'{sv:.0f}/10', val_s)],
+            [Paragraph('Health Score', lbl_s)],
+            [Paragraph(label, sub_s)],
+        ]
+        t = Table(data, colWidths=[38*mm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND',(0,0),(-1,-1), bg),
+            ('BOX',(0,0),(-1,-1), 0.75, tc),
+            ('TOPPADDING',(0,0),(-1,-1),6),('BOTTOMPADDING',(0,0),(-1,-1),6),
+            ('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),
+        ]))
+        return t
+    except Exception:
+        return None
+
 # ── Health score gauge ────────────────────────────────────────────────────────
 
 def health_score_section(score, C_ACCENT):
@@ -1287,8 +1315,6 @@ def build_report(d):
 
     # ── TOC section list ─────────────────────────────────────────────────────
     toc_sections = ['Executive Summary']
-    if has_health:
-        toc_sections.append('Business Health Score')
     if periods and any(has_val(v) for v in period_rev):
         toc_sections.append('Revenue Performance & Margins')
     if opex_with_totals:
@@ -1379,64 +1405,22 @@ def build_report(d):
             (fmtp(d.get('net_margin')),'Net Margin','Average'),
         ]
         kpis = [kpi_card(v,l,sub) for (v,l,sub) in kpi_defs]
-    kpi_row=Table([kpis],colWidths=[38*mm]*4)
+
+    # Add health score as 5th card if available
+    if has_health:
+        try:
+            hc = health_kpi_card(health_score)
+            if hc: kpis.append(hc)
+        except Exception:
+            pass
+
+    ncards = len(kpis)
+    kpi_row = Table([kpis], colWidths=[38*mm]*ncards)
     kpi_row.setStyle(TableStyle([
         ('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),
         ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),
     ]))
-    story.append(KeepTogether([kpi_row,Spacer(1,5*mm)]))
-
-    # ── Health Score ──────────────────────────────────────────────────────────
-    if has_health:
-        try:
-            gauge = health_score_section(health_score, C_ACCENT)
-            if gauge:
-                sv = clean(health_score)
-                if sv:
-                    if sv >= 8:   interp = 'Excellent — the business is performing strongly across all key metrics.'
-                    elif sv >= 6: interp = 'Good — solid performance with some areas to monitor.'
-                    elif sv >= 4: interp = 'Fair — notable areas requiring attention to maintain growth.'
-                    else:         interp = 'Needs attention — several key metrics require immediate focus.'
-                    if sv <= 3:   score_col = RED_TEXT
-                    elif sv <= 6: score_col = colors.HexColor('#D97706')
-                    else:         score_col = GREEN_TEXT
-                else:
-                    interp = ''; score_col = TEAL
-
-                score_label = s('hs_val', fontName=FONT_SERIF_BOLD, fontSize=32,
-                                textColor=score_col, leading=38, alignment=TA_CENTER)
-                score_sub   = s('hs_sub', fontName=FONT_SANS, fontSize=8,
-                                textColor=GRAY, leading=12, alignment=TA_CENTER)
-                interp_s    = s('hs_int', fontName=FONT_SANS, fontSize=9,
-                                textColor=DARK, leading=14)
-
-                right_col = Table([
-                    [Paragraph(f'{sv:.0f}/10', score_label)],
-                    [Paragraph('out of 10', score_sub)],
-                    [Spacer(1, 4*mm)],
-                    [Paragraph(interp, interp_s)],
-                ], colWidths=[85*mm])
-                right_col.setStyle(TableStyle([
-                    ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),
-                    ('LEFTPADDING',(0,0),(-1,-1),6),('RIGHTPADDING',(0,0),(-1,-1),0),
-                    ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-                ]))
-
-                combined_hs = Table([[gauge, right_col]], colWidths=[90*mm, 85*mm])
-                combined_hs.setStyle(TableStyle([
-                    ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-                    ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),
-                    ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
-                ]))
-
-                story.append(KeepTogether([
-                    section_header('Business Health Score', C_ACCENT),
-                    Spacer(1,3*mm),
-                    combined_hs,
-                    Spacer(1,5*mm),
-                ]))
-        except Exception:
-            pass
+    story.append(KeepTogether([kpi_row, Spacer(1,5*mm)]))
 
     # ── Revenue Performance & Margins ─────────────────────────────────────────
     if periods and any(has_val(v) for v in period_rev):
