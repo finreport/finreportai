@@ -6,7 +6,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether, PageBreak
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
-from reportlab.graphics.shapes import Drawing, Rect, String, Line
+from reportlab.graphics.shapes import Drawing, Rect, String, Line, Polygon
 from reportlab.pdfgen import canvas as rl_canvas
 
 try:
@@ -267,84 +267,95 @@ def expense_pie_chart(labels, values, w=80, h=85):
 
 # ── Waterfall chart — stacked bars ───────────────────────────────────────────
 
-def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=90):
+def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=80):
     try:
-        rev  = clean(total_revenue)
+        rev = clean(total_revenue)
         if not rev or rev <= 0: return None
-        cogs  = clean(total_cogs) or 0
-        opex  = clean(total_opex) or 0
+        cogs  = clean(total_cogs)  or 0
+        opex  = clean(total_opex)  or 0
         np_v  = clean(net_profit)
         gross = rev - cogs
         net   = np_v if np_v is not None else (gross - opex)
 
-        AMBER     = colors.HexColor('#D97706')
-        COGS_FADE = colors.HexColor('#6B2D2D')
-
-        dw      = Drawing(w*mm, h*mm)
-        base_y  = 18*mm
-        chart_h = (h - 30)*mm
+        dw = Drawing(w*mm, h*mm)
+        base_y   = 14*mm
+        chart_h  = (h - 26)*mm   # leave room for labels above and axis/legend below
 
         def ht(val): return (max(val, 0) / rev) * chart_h if rev > 0 else 0
 
-        legend_w = 28*mm
-        avail    = w*mm - legend_w - 8*mm
-        bw       = min(36*mm, avail / 4)
-        gap      = (avail - bw * 3) / 2
-        def bx(i): return legend_w + i*(bw + gap)
+        # 3 bars: Revenue | COGS + GP | OpEx + Net Profit
+        avail = (w - 20)*mm
+        bw    = min(36*mm, avail / 4)
+        gap   = (avail - bw * 3) / 2
+
+        def bx(i): return 10*mm + i*(bw + gap)
+
+        AMBER = colors.HexColor('#D97706')
 
         def label_in(x, y_bot, bar_h, text, color=WHITE):
+            """Draw label centred in a bar segment if it fits."""
             if bar_h > 7*mm:
-                dw.add(String(x + bw/2, y_bot + bar_h/2 - 1*mm, text,
+                dw.add(String(x + bw/2, y_bot + bar_h/2 - 3*mm, text,
                               fontSize=6.5, fillColor=color,
                               textAnchor='middle', fontName='Helvetica-Bold'))
 
+        def value_above(x, y_top, text, color=NAVY):
+            dw.add(String(x + bw/2, y_top + 1.5*mm, text,
+                          fontSize=6.5, fillColor=color,
+                          textAnchor='middle', fontName='Helvetica-Bold'))
+
         def axis_label(x, text):
-            dw.add(String(x + bw/2, base_y - 10*mm, text, fontSize=6.5,
-                          fillColor=GRAY, textAnchor='middle', fontName='Helvetica-Bold'))
+            dw.add(String(x + bw/2, base_y - 8*mm, text,
+                          fontSize=6, fillColor=GRAY, textAnchor='middle'))
 
-        full_h = ht(rev); gp_h = ht(gross); cogs_h = ht(cogs)
-        net_h  = ht(max(net, 0)); opex_h = ht(opex); pad_h = full_h - net_h - opex_h
-
-        # Bar 1: Revenue
-        dw.add(Rect(bx(0), base_y, bw, full_h, fillColor=TEAL, strokeColor=None))
-        label_in(bx(0), base_y, full_h, f'Revenue £{rev/1000:.0f}k')
+        # ── Bar 1: Revenue ────────────────────────────────────────────────────
+        rev_h = ht(rev)
+        dw.add(Rect(bx(0), base_y, bw, rev_h, fillColor=TEAL, strokeColor=None))
+        label_in(bx(0), base_y, rev_h, 'Revenue')
+        value_above(bx(0), base_y + rev_h, f'£{rev/1000:.0f}k', TEAL)
         axis_label(bx(0), 'Revenue')
 
-        # Bar 2: GP + COGS
-        dw.add(Rect(bx(1), base_y,       bw, gp_h,   fillColor=TEAL,    strokeColor=None))
-        dw.add(Rect(bx(1), base_y+gp_h,  bw, cogs_h, fillColor=RED_TEXT, strokeColor=None))
-        label_in(bx(1), base_y,      gp_h,   f'GP £{gross/1000:.0f}k')
-        label_in(bx(1), base_y+gp_h, cogs_h, f'COGS £{cogs/1000:.0f}k')
+        # ── Bar 2: COGS (red, top) + Gross Profit (teal, bottom) ─────────────
+        gp_h   = ht(gross)
+        cogs_h = ht(cogs)
+        if cogs > 0:
+            dw.add(Rect(bx(1), base_y,          bw, gp_h,   fillColor=TEAL,     strokeColor=None))
+            dw.add(Rect(bx(1), base_y + gp_h,   bw, cogs_h, fillColor=RED_TEXT,  strokeColor=None))
+            label_in(bx(1), base_y,        gp_h,   f'GP £{gross/1000:.0f}k')
+            label_in(bx(1), base_y+gp_h,   cogs_h, f'COGS £{cogs/1000:.0f}k')
+            value_above(bx(1), base_y + gp_h + cogs_h, f'£{rev/1000:.0f}k', GRAY)
+        else:
+            dw.add(Rect(bx(1), base_y, bw, gp_h, fillColor=TEAL, strokeColor=None))
+            label_in(bx(1), base_y, gp_h, 'Gross Profit')
+            value_above(bx(1), base_y + gp_h, f'£{gross/1000:.0f}k', TEAL)
         axis_label(bx(1), 'Cost Breakdown')
 
-        # Bar 3: NP + OpEx + faded COGS pad
-        dw.add(Rect(bx(2), base_y,                   bw, net_h,  fillColor=NAVY,      strokeColor=None))
-        dw.add(Rect(bx(2), base_y+net_h,             bw, opex_h, fillColor=AMBER,     strokeColor=None))
-        if pad_h > 0:
-            dw.add(Rect(bx(2), base_y+net_h+opex_h, bw, pad_h,  fillColor=COGS_FADE, strokeColor=None))
-        label_in(bx(2), base_y,               net_h,  f'NP £{net/1000:.0f}k')
-        label_in(bx(2), base_y+net_h,         opex_h, f'OpEx £{opex/1000:.0f}k')
-        if pad_h > 7*mm:
-            label_in(bx(2), base_y+net_h+opex_h, pad_h, f'COGS £{cogs/1000:.0f}k')
+        # ── Bar 3: OpEx (amber, top) + Net Profit (navy, bottom) ─────────────
+        net_h  = ht(max(net, 0))
+        opex_h = ht(opex)
+        if opex > 0:
+            dw.add(Rect(bx(2), base_y,         bw, net_h,  fillColor=NAVY,  strokeColor=None))
+            dw.add(Rect(bx(2), base_y + net_h, bw, opex_h, fillColor=AMBER, strokeColor=None))
+            label_in(bx(2), base_y,       net_h,  f'NP £{net/1000:.0f}k')
+            label_in(bx(2), base_y+net_h, opex_h, f'OpEx £{opex/1000:.0f}k')
+            value_above(bx(2), base_y + net_h + opex_h, f'£{gross/1000:.0f}k', GRAY)
+        else:
+            dw.add(Rect(bx(2), base_y, bw, net_h, fillColor=NAVY, strokeColor=None))
+            label_in(bx(2), base_y, net_h, 'Net Profit')
+            value_above(bx(2), base_y + net_h, f'£{net/1000:.0f}k', NAVY)
         axis_label(bx(2), 'Profit Breakdown')
 
-        # Baseline
-        dw.add(Line(legend_w, base_y, (w-3)*mm, base_y, strokeColor=BORDER, strokeWidth=0.5))
+        # ── Baseline ──────────────────────────────────────────────────────────
+        dw.add(Line(8*mm, base_y, (w-5)*mm, base_y, strokeColor=BORDER, strokeWidth=0.5))
 
-        # Legend — vertical, left side, top-aligned with bars
-        items = [
-            (TEAL,     'Revenue / GP'),
-            (RED_TEXT, 'COGS'),
-            (AMBER,    'OpEx'),
-            (NAVY,     'Net Profit'),
-        ]
-        swatch = 2*mm; row_h = 5.5*mm
-        start_y = base_y + full_h - row_h
-        for i, (col, lbl) in enumerate(items):
-            ly = start_y - i * row_h
-            dw.add(Rect(1*mm, ly+0.3*mm, swatch, swatch, fillColor=col, strokeColor=None))
-            dw.add(String(1*mm+swatch+1.5*mm, ly+0.3, lbl,
-                          fontSize=6, fillColor=GRAY, textAnchor='start'))
+        # ── Legend ────────────────────────────────────────────────────────────
+        legend_y = 2*mm
+        items = [(TEAL,'Gross Profit / Revenue'), (RED_TEXT,'COGS'), (AMBER,'Operating Expenses'), (NAVY,'Net Profit')]
+        lx = 10*mm
+        for col, lbl in items:
+            dw.add(Rect(lx, legend_y, 6, 6, fillColor=col, strokeColor=None))
+            dw.add(String(lx + 8, legend_y + 1, lbl, fontSize=5.5, fillColor=GRAY, textAnchor='start'))
+            lx += 42*mm
 
         return dw
     except Exception:
@@ -400,87 +411,155 @@ def tax_estimate_section(net_profit, C_ACCENT):
 
 def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, report_ref):
     try:
-        bname = str(d.get('business_name', 'Client Business'))
+        from reportlab.graphics.shapes import Drawing, Rect as GRect, Polygon, String as GString, Line as GLine
+        from reportlab.graphics import renderPDF
+
+        bname  = str(d.get('business_name', 'Client Business'))
         period = str(d.get('period', ''))
 
-        # Firm name / logo
-        try:
-            if is_wl and wl_logo and wl_logo.upper() not in ('NA','N/A','','NONE'):
+        # Background word: first word of business name for WL, "FIN" for standard
+        bg_word = bname.split()[0].upper() if is_wl else 'FIN'
+
+        # Page dimensions inside margins: 175mm wide, 285mm tall
+        pw = 175*mm
+        ph = 285*mm
+
+        # ── Canvas drawing ────────────────────────────────────────────────────
+        dw = Drawing(pw, ph)
+
+        # Navy background
+        dw.add(GRect(0, 0, pw, ph, fillColor=C_PRIMARY, strokeColor=None))
+
+        # Left teal accent bar
+        dw.add(GRect(0, 0, 4, ph, fillColor=TEAL, strokeColor=None))
+
+        # Teal angular shapes — bottom right (triangles via thin overlapping rects approximated as polygons)
+        # Polygon: bottom-right triangle
+        dw.add(Polygon(
+            points=[pw, 0, pw, ph*0.45, pw*0.35, 0],
+            fillColor=TEAL, strokeColor=None, fillOpacity=0.10
+        ))
+        dw.add(Polygon(
+            points=[pw, 0, pw, ph*0.32, pw*0.52, 0],
+            fillColor=TEAL, strokeColor=None, fillOpacity=0.08
+        ))
+
+        # Faint background word
+        dw.add(GString(
+            14*mm, ph*0.38,
+            bg_word,
+            fontSize=95, fillColor=TEAL, fillOpacity=0.055,
+            fontName='Helvetica-Bold', textAnchor='start'
+        ))
+
+        # ── Firm header ───────────────────────────────────────────────────────
+        # Double rule under firm name
+        dw.add(GLine(14*mm, ph-24*mm, pw-8*mm, ph-24*mm,
+                     strokeColor=TEAL, strokeWidth=0.5, strokeOpacity=0.4))
+        dw.add(GLine(14*mm, ph-24.8*mm, pw-8*mm, ph-24.8*mm,
+                     strokeColor=GOLD, strokeWidth=0.8, strokeOpacity=0.6))
+
+        # Gold accent rule above headline
+        dw.add(GRect(14*mm, ph*0.56, 18*mm, 2.5, fillColor=GOLD, strokeColor=None))
+
+        # ── FINANCIAL REPORT pill ─────────────────────────────────────────────
+        pill_y = ph*0.515
+        dw.add(GRect(14*mm, pill_y, 42*mm, 7*mm, rx=1.5, fillColor=TEAL, strokeColor=None))
+        dw.add(GString(
+            35*mm, pill_y + 5*mm,
+            'FINANCIAL REPORT',
+            fontSize=6.5, fillColor=WHITE,
+            fontName='Helvetica-Bold', textAnchor='middle'
+        ))
+
+        # ── CONFIDENTIAL badge ────────────────────────────────────────────────
+        conf_y = ph*0.24
+        dw.add(GRect(14*mm, conf_y, 30*mm, 7*mm, rx=2, fillColor=GOLD, strokeColor=None))
+        dw.add(GString(
+            29*mm, conf_y + 5*mm,
+            'CONFIDENTIAL',
+            fontSize=6, fillColor=NAVY,
+            fontName='Helvetica-Bold', textAnchor='middle'
+        ))
+
+        # Bottom rule
+        dw.add(GLine(0, 14*mm, pw, 14*mm,
+                     strokeColor=TEAL, strokeWidth=0.5, strokeOpacity=0.3))
+
+        # ── Ref line ─────────────────────────────────────────────────────────
+        dw.add(GString(
+            14*mm, 8*mm,
+            f'Ref: {report_ref}   ·   Prepared by {prepared_by}   ·   Confidential',
+            fontSize=6, fillColor=colors.HexColor('#5B7A9A'),
+            fontName='Helvetica', textAnchor='start'
+        ))
+
+        # ── Platypus wrapper ──────────────────────────────────────────────────
+        # We overlay text on top of the drawing using a Table
+        # Drawing goes in cell, then absolute-positioned text via nested table rows
+
+        # Build text rows on top — use a separate table layered via the story
+        from reportlab.platypus import Flowable
+
+        class CoverDrawing(Flowable):
+            def __init__(self, drawing, overlay_items):
+                Flowable.__init__(self)
+                self._drawing = drawing
+                self._overlay = overlay_items  # list of (x, y_from_top, paragraph)
+                self.width  = pw
+                self.height = ph
+
+            def wrap(self, *args):
+                return self.width, self.height
+
+            def draw(self):
+                renderPDF.draw(self._drawing, self.canv, 0, 0)
+                for (x, y_from_top, para) in self._overlay:
+                    para.wrapOn(self.canv, pw - x - 8*mm, 40*mm)
+                    para.drawOn(self.canv, x, ph - y_from_top)
+
+        # Text overlay items: (x, y_from_top_of_page, paragraph)
+        overlay = []
+
+        # Firm name
+        if is_wl and wl_logo and wl_logo.upper() not in ('NA','N/A','','NONE'):
+            try:
                 import urllib.request, tempfile
                 from reportlab.platypus import Image as RLImage
                 tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
                 urllib.request.urlretrieve(wl_logo, tmp.name)
-                firm_c = RLImage(tmp.name, width=55*mm, height=12*mm, kind='proportional')
-            elif is_wl:
-                firm_c = Paragraph(prepared_by, s('cvf', fontName='Helvetica-Bold', fontSize=18, textColor=WHITE, leading=24))
-            else:
-                firm_c = Paragraph('FinReportAI', s('cvf', fontName='Helvetica-Bold', fontSize=18, textColor=GOLD, leading=24))
-        except:
-            firm_c = Paragraph(prepared_by, s('cvf2', fontName='Helvetica-Bold', fontSize=18, textColor=WHITE, leading=24))
+                overlay.append((14*mm, 18*mm, RLImage(tmp.name, width=50*mm, height=10*mm, kind='proportional')))
+            except:
+                overlay.append((14*mm, 18*mm, Paragraph(prepared_by,
+                    s('cvfn', fontName='Helvetica-Bold', fontSize=16, textColor=WHITE, leading=20))))
+        else:
+            fn_text = prepared_by if is_wl else 'FinReportAI'
+            fn_color = WHITE if is_wl else GOLD
+            overlay.append((14*mm, 18*mm, Paragraph(fn_text,
+                s('cvfn', fontName='Helvetica-Bold', fontSize=16, textColor=fn_color, leading=20))))
 
+        # Tagline
         has_tag = is_wl and wl_tagline and wl_tagline.upper() not in ('NA','N/A','NONE','')
-        tag_c = Paragraph(wl_tagline, s('cvtg', fontSize=9, textColor=colors.HexColor('#9BB5D4'), leading=13)) \
-                if has_tag else Spacer(1, 1)
+        if has_tag:
+            overlay.append((14*mm, 30*mm, Paragraph(wl_tagline,
+                s('cvtg', fontSize=8.5, textColor=colors.HexColor('#9BB5D4'), leading=12))))
 
-        conf_pill = Table([[Paragraph('CONFIDENTIAL',
-            s('cvcf', fontName='Helvetica-Bold', fontSize=8, textColor=NAVY, leading=10, alignment=TA_CENTER))]],
-            colWidths=[32*mm])
-        conf_pill.setStyle(TableStyle([
-            ('BACKGROUND',(0,0),(-1,-1),GOLD),
-            ('TOPPADDING',(0,0),(-1,-1),4),('BOTTOMPADDING',(0,0),(-1,-1),4),
-            ('LEFTPADDING',(0,0),(-1,-1),6),('RIGHTPADDING',(0,0),(-1,-1),6),
-        ]))
+        # Business name (large) — positioned at ~40% from top
+        overlay.append((14*mm, ph*0.415, Paragraph(
+            bname,
+            s('cvbiz', fontName='Helvetica-Bold', fontSize=28, textColor=WHITE, leading=36))))
 
-        # Divider line
-        rule = Table([['']], colWidths=[143*mm], rowHeights=[1])
-        rule.setStyle(TableStyle([
-            ('LINEABOVE',(0,0),(-1,0),0.5,colors.HexColor('#2D4A6B')),
-            ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),
-            ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
-        ]))
+        # Period
+        overlay.append((14*mm, ph*0.355, Paragraph(
+            period,
+            s('cvper', fontSize=12, textColor=colors.HexColor('#9BB5D4'), leading=16))))
 
-        ref_para = Paragraph(
-            f'Ref: {report_ref}   ·   Prepared by {prepared_by}   ·   Confidential',
-            s('cvmeta', fontSize=7.5, textColor=colors.HexColor('#6B7280'), leading=11))
+        # Currency
+        overlay.append((14*mm, ph*0.33, Paragraph(
+            'Currency: GBP (£)',
+            s('cvgbp', fontSize=9, textColor=colors.HexColor('#5B7A9A'), leading=12))))
 
-        # Rows + explicit heights summing to 280mm
-        # (A4 frame = 297 - 0 topMargin - 12 bottomMargin = 285mm; leave 5mm buffer)
-        rows = [
-            [Spacer(1,1)],       # 0  top space        28mm
-            [firm_c],            # 1  firm name         14mm
-            [tag_c],             # 2  tagline           10mm
-            [Spacer(1,1)],       # 3  gap               36mm
-            [Paragraph(bname, s('cvbiz', fontName='Helvetica-Bold', fontSize=26, textColor=WHITE, leading=34))],  # 4  biz name 22mm
-            [Spacer(1,1)],       # 5  small gap          4mm
-            [Paragraph('Financial Report', s('cvtype', fontSize=12, textColor=colors.HexColor('#9BB5D4'), leading=17))],  # 6 10mm
-            [Paragraph(period, s('cvper', fontSize=10, textColor=colors.HexColor('#9BB5D4'), leading=14))],  # 7 9mm
-            [Paragraph('GBP (£)', s('cvgbp', fontSize=8.5, textColor=colors.HexColor('#5B7A9A'), leading=12))],  # 8 8mm
-            [Spacer(1,1)],       # 9  pre-rule gap       8mm
-            [rule],              # 10 divider             3mm
-            [Spacer(1,1)],       # 11 post-rule          14mm
-            [conf_pill],         # 12 conf badge         14mm
-            [Spacer(1,1)],       # 13 stretch            84mm
-            [ref_para],          # 14 ref line           10mm
-            [Spacer(1,1)],       # 15 bottom buffer       6mm
-        ]
-        # Sum: 28+14+10+36+22+4+10+9+8+8+3+14+14+84+10+6 = 280mm
-        heights = [
-            28*mm, 14*mm, 10*mm, 36*mm,
-            22*mm,  4*mm, 10*mm,  9*mm,
-             8*mm,  8*mm,  3*mm, 14*mm,
-            14*mm, 84*mm, 10*mm,  6*mm,
-        ]
-
-        cover_t = Table(rows, colWidths=[175*mm], rowHeights=heights)
-        cover_t.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,-1), C_PRIMARY),
-            ('TOPPADDING', (0,0), (-1,-1), 0),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
-            ('LEFTPADDING', (0,0), (-1,-1), 14*mm),
-            ('RIGHTPADDING', (0,0), (-1,-1), 8*mm),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ]))
-        return [cover_t, PageBreak()]
+        return [CoverDrawing(dw, overlay), PageBreak()]
     except Exception:
         return []
 
@@ -936,57 +1015,51 @@ def build_report(d):
         m_t.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
         combined=Table([[chart,m_t]],colWidths=[100*mm,75*mm])
         combined.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
-        story.append(section_header('Revenue Performance & Margins', C_ACCENT))
-        story.append(Spacer(1,3*mm))
-        story.append(combined)
-        story.append(Spacer(1,5*mm))
+        story.append(KeepTogether([
+            section_header('Revenue Performance & Margins', C_ACCENT),
+            Spacer(1,3*mm), combined, Spacer(1,5*mm),
+        ]))
 
     # ── Expense Breakdown + Pie chart ─────────────────────────────────────────
     if opex_with_totals:
-        cards = []
+        cards=[]
         for it in opex_with_totals[:5]:
-            tv  = clean(it.get('total'))
-            pct = (tv/total_r*100) if (total_r and total_r > 0) else None
+            tv = clean(it.get('total'))
+            pct = (tv/total_r*100) if (total_r and total_r>0) else None
             cards.append(exp_card(it.get('label','')[:16], tv, pct))
+        exp_row=Table([cards],colWidths=[33*mm]*len(cards))
+        exp_row.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
 
-        # Row 1: first 3 cards, Row 2: remaining cards
-        row1_cards = cards[:3]; row2_cards = cards[3:]
-        cw = [38*mm] * len(row1_cards)
-        row1 = Table([row1_cards], colWidths=cw)
-        row1.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),1),('RIGHTPADDING',(0,0),(-1,-1),1),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
-
-        cards_block_rows = [[row1]]
-        if row2_cards:
-            cw2 = [38*mm] * len(row2_cards)
-            row2 = Table([row2_cards], colWidths=cw2)
-            row2.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),1),('RIGHTPADDING',(0,0),(-1,-1),1),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
-            cards_block_rows += [[Spacer(1,2*mm)],[row2]]
-
-        cards_block = Table(cards_block_rows, colWidths=[116*mm])
-        cards_block.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
-
-        try:
-            pie = expense_pie_chart(
-                [it.get('label','') for it in opex_with_totals],
-                [it.get('total') for it in opex_with_totals],
-                w=55, h=65,
-            ) if (HAS_PIE and len(opex_with_totals) >= 2) else None
-        except Exception:
-            pie = None
-
-        if pie:
-            combined = Table([[cards_block, pie]], colWidths=[118*mm, 57*mm])
-            combined.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'MIDDLE'),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
-            content = combined
-        else:
-            content = cards_block
-
-        story.append(KeepTogether([
+        exp_section = [
             section_header('Operating Expense Breakdown', C_ACCENT),
-            Spacer(1, 3*mm),
-            content,
-            Spacer(1, 5*mm),
-        ]))
+            Spacer(1,3*mm),
+        ]
+
+        # Pie chart centred below expense cards
+        try:
+            if HAS_PIE and len(opex_with_totals) >= 2:
+                pie = expense_pie_chart(
+                    [it.get('label','') for it in opex_with_totals],
+                    [it.get('total') for it in opex_with_totals],
+                )
+                if pie:
+                    side_pad = (175*mm - 80*mm) / 2
+                    pie_row = Table([[Spacer(1,1), pie, Spacer(1,1)]],
+                                    colWidths=[side_pad, 80*mm, side_pad])
+                    pie_row.setStyle(TableStyle([
+                        ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),
+                        ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
+                        ('VALIGN',(0,0),(-1,-1),'TOP'),
+                    ]))
+                    exp_section += [exp_row, Spacer(1, 6*mm), pie_row, Spacer(1, 5*mm)]
+                else:
+                    exp_section += [exp_row, Spacer(1, 5*mm)]
+            else:
+                exp_section += [exp_row, Spacer(1, 5*mm)]
+        except Exception:
+            exp_section += [exp_row, Spacer(1, 5*mm)]
+
+        story.append(KeepTogether(exp_section))
 
     # ── P&L Table ─────────────────────────────────────────────────────────────
     if revenue_items or cogs_items or opex_items or has_val(d.get('total_revenue')):
