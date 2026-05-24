@@ -10,12 +10,40 @@ from reportlab.graphics.shapes import Drawing, Rect, String, Line, Polygon
 from reportlab.pdfgen import canvas as rl_canvas
 
 try:
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    pdfmetrics.registerFont(TTFont('LiberationSerif',        '/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf'))
+    pdfmetrics.registerFont(TTFont('LiberationSerif-Bold',   '/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf'))
+    pdfmetrics.registerFont(TTFont('LiberationSerif-Italic', '/usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf'))
+    pdfmetrics.registerFont(TTFont('LiberationSans',         '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf'))
+    pdfmetrics.registerFont(TTFont('LiberationSans-Bold',    '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf'))
+    pdfmetrics.registerFont(TTFont('LiberationSans-Italic',  '/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf'))
+    from reportlab.pdfbase.pdfmetrics import registerFontFamily
+    registerFontFamily('LiberationSerif',
+        normal='LiberationSerif', bold='LiberationSerif-Bold',
+        italic='LiberationSerif-Italic', boldItalic='LiberationSerif-Bold')
+    registerFontFamily('LiberationSans',
+        normal='LiberationSans', bold='LiberationSans-Bold',
+        italic='LiberationSans-Italic', boldItalic='LiberationSans-Bold')
+    FONT_SERIF      = 'LiberationSerif'
+    FONT_SERIF_BOLD = 'LiberationSerif-Bold'
+    FONT_SERIF_IT   = 'LiberationSerif-Italic'
+    FONT_SANS       = 'LiberationSans'
+    FONT_SANS_BOLD  = 'LiberationSans-Bold'
+except Exception:
+    FONT_SERIF      = 'Times-Roman'
+    FONT_SERIF_BOLD = 'Times-Bold'
+    FONT_SERIF_IT   = 'Times-Italic'
+    FONT_SANS       = 'Helvetica'
+    FONT_SANS_BOLD  = 'Helvetica-Bold'
+
+app = Flask(__name__)
+
+try:
     from reportlab.graphics.charts.piecharts import Pie as RLPie
     HAS_PIE = True
 except ImportError:
     HAS_PIE = False
-
-app = Flask(__name__)
 
 W, H = A4
 NAVY      = colors.HexColor('#0F1F3D')
@@ -35,23 +63,23 @@ AMBER_SOFT= colors.HexColor('#FEF9C3')
 AMBER_TEXT= colors.HexColor('#92400E')
 
 def s(name, **kw):
-    base = dict(fontName='Helvetica', fontSize=9, textColor=DARK, leading=14, spaceAfter=0, spaceBefore=0)
+    base = dict(fontName=FONT_SANS, fontSize=9, textColor=DARK, leading=14, spaceAfter=0, spaceBefore=0)
     base.update(kw)
     return ParagraphStyle(name, **base)
 
-ST_SECTION = s('sec', fontName='Helvetica-Bold', fontSize=8, textColor=TEAL, leading=11)
-ST_BODY    = s('body', fontSize=9, textColor=colors.HexColor('#374151'), leading=15)
-ST_SMALL   = s('sm', fontSize=7.5, textColor=GRAY, leading=11)
-ST_TH      = s('th', fontName='Helvetica-Bold', fontSize=8, textColor=WHITE, alignment=TA_RIGHT, leading=11)
-ST_TH_L    = s('thl', fontName='Helvetica-Bold', fontSize=8, textColor=WHITE, leading=11)
-ST_TD      = s('td', fontSize=8, textColor=DARK, alignment=TA_RIGHT, leading=11)
-ST_TD_L    = s('tdl', fontSize=8, textColor=DARK, leading=11)
-ST_BOLD    = s('bold', fontName='Helvetica-Bold', fontSize=8, textColor=NAVY, leading=11)
-ST_BOLD_R  = s('boldr', fontName='Helvetica-Bold', fontSize=8, textColor=NAVY, alignment=TA_RIGHT, leading=11)
-ST_FOOTER  = s('foot', fontSize=7, textColor=GRAY, alignment=TA_CENTER, leading=10)
-ST_KPI_V   = s('kpiv', fontName='Helvetica-Bold', fontSize=17, textColor=NAVY, leading=21, alignment=TA_CENTER)
-ST_KPI_L   = s('kpil', fontSize=7, textColor=GRAY, leading=9, alignment=TA_CENTER)
-ST_FLAG_B  = s('flagb', fontSize=8, textColor=colors.HexColor('#374151'), leading=12)
+ST_SECTION = s('sec', fontName=FONT_SANS_BOLD, fontSize=8, textColor=TEAL, leading=11)
+ST_BODY    = s('body', fontName=FONT_SANS, fontSize=9, textColor=colors.HexColor('#374151'), leading=15)
+ST_SMALL   = s('sm', fontName=FONT_SANS, fontSize=7.5, textColor=GRAY, leading=11)
+ST_TH      = s('th', fontName=FONT_SANS_BOLD, fontSize=8, textColor=WHITE, alignment=TA_RIGHT, leading=11)
+ST_TH_L    = s('thl', fontName=FONT_SANS_BOLD, fontSize=8, textColor=WHITE, leading=11)
+ST_TD      = s('td', fontName=FONT_SANS, fontSize=8, textColor=DARK, alignment=TA_RIGHT, leading=11)
+ST_TD_L    = s('tdl', fontName=FONT_SANS, fontSize=8, textColor=DARK, leading=11)
+ST_BOLD    = s('bold', fontName=FONT_SANS_BOLD, fontSize=8, textColor=NAVY, leading=11)
+ST_BOLD_R  = s('boldr', fontName=FONT_SANS_BOLD, fontSize=8, textColor=NAVY, alignment=TA_RIGHT, leading=11)
+ST_FOOTER  = s('foot', fontName=FONT_SANS, fontSize=7, textColor=GRAY, alignment=TA_CENTER, leading=10)
+ST_KPI_V   = s('kpiv', fontName=FONT_SERIF_BOLD, fontSize=17, textColor=NAVY, leading=21, alignment=TA_CENTER)
+ST_KPI_L   = s('kpil', fontName=FONT_SANS, fontSize=7, textColor=GRAY, leading=9, alignment=TA_CENTER)
+ST_FLAG_B  = s('flagb', fontName=FONT_SANS, fontSize=8, textColor=colors.HexColor('#374151'), leading=12)
 
 def clean(n):
     if n is None: return None
@@ -105,7 +133,7 @@ def bar_chart(labels, values, w=100, h=44, show_trend=False):
         dw.add(Rect(x, base_y, bw, max(bh,1), fillColor=c, strokeColor=None))
         dw.add(String(x+bw/2, base_y-7*mm, str(l)[:6], fontSize=6.5, fillColor=GRAY, textAnchor='middle'))
         lab = f'£{v/1000:.0f}k' if v >= 1000 else f'£{v:.0f}'
-        dw.add(String(x+bw/2, base_y+max(bh,1)+1.5*mm, lab, fontSize=6.5, fillColor=NAVY, textAnchor='middle', fontName='Helvetica-Bold'))
+        dw.add(String(x+bw/2, base_y+max(bh,1)+1.5*mm, lab, fontSize=6.5, fillColor=NAVY, textAnchor='middle', fontName=FONT_SANS_BOLD))
     dw.add(Line(8*mm, base_y, w*mm-5*mm, base_y, strokeColor=BORDER, strokeWidth=0.5))
     if show_trend and len(vals) >= 2:
         try:
@@ -130,11 +158,11 @@ def margin_bar(pct_val, label, color, w=65, h=10):
     dw.add(Rect(2*mm,3*mm,track_w,4*mm,fillColor=BORDER,strokeColor=None,rx=2,ry=2))
     dw.add(Rect(2*mm,3*mm,fill_w,4*mm,fillColor=color,strokeColor=None,rx=2,ry=2))
     dw.add(String(2*mm,0.5*mm,str(label),fontSize=6,fillColor=GRAY,textAnchor='start'))
-    dw.add(String((w-2)*mm,0.5*mm,f'{v:.1%}',fontSize=6.5,fillColor=color,textAnchor='end',fontName='Helvetica-Bold'))
+    dw.add(String((w-2)*mm,0.5*mm,f'{v:.1%}',fontSize=6.5,fillColor=color,textAnchor='end',fontName=FONT_SANS_BOLD))
     return dw
 
 def kpi_card(value, label, sub):
-    sub_s = s('cs', fontName='Helvetica-Bold', fontSize=7.5, textColor=TEAL, leading=10, alignment=TA_CENTER)
+    sub_s = s('cs', fontName=FONT_SANS_BOLD, fontSize=7.5, textColor=TEAL, leading=10, alignment=TA_CENTER)
     data=[[Paragraph(str(value),ST_KPI_V)],[Paragraph(str(label),ST_KPI_L)],[Paragraph(str(sub),sub_s)]]
     t=Table(data,colWidths=[38*mm])
     t.setStyle(TableStyle([
@@ -163,9 +191,9 @@ def flag_card(num, title, body, severity='WATCH'):
         'INFO':     (TEAL,       TEAL_LITE,   'i', 'Info'),
     }
     tc,bg,icon,label = color_map.get(severity.upper(), (AMBER_TEXT,AMBER_SOFT,'!','Watch'))
-    icon_s = s('ico',fontName='Helvetica-Bold',fontSize=10,textColor=tc,alignment=TA_CENTER,leading=12)
-    sev_s  = s('sev',fontName='Helvetica-Bold',fontSize=7, textColor=tc,alignment=TA_CENTER,leading=9)
-    head_s = s('fh', fontName='Helvetica-Bold',fontSize=8, textColor=DARK,leading=12)
+    icon_s = s('ico',fontName=FONT_SANS_BOLD,fontSize=10,textColor=tc,alignment=TA_CENTER,leading=12)
+    sev_s  = s('sev',fontName=FONT_SANS_BOLD,fontSize=7, textColor=tc,alignment=TA_CENTER,leading=9)
+    head_s = s('fh', fontName=FONT_SANS_BOLD,fontSize=8, textColor=DARK,leading=12)
     data=[[[Paragraph(icon,icon_s),Paragraph(label,sev_s)],
             [Paragraph(f'{num}. {title}',head_s),Spacer(1,2),Paragraph(body,ST_FLAG_B)]]]
     t=Table(data,colWidths=[14*mm,161*mm])
@@ -180,8 +208,8 @@ def flag_card(num, title, body, severity='WATCH'):
 
 def exp_card(lbl, val, pct_rev):
     data=[
-        [Paragraph(str(lbl),s('el',fontName='Helvetica-Bold',fontSize=8,textColor=NAVY,leading=11))],
-        [Paragraph(fmt(val),s('ev',fontName='Helvetica-Bold',fontSize=13,textColor=NAVY,leading=17))],
+        [Paragraph(str(lbl),s('el',fontName=FONT_SANS_BOLD,fontSize=8,textColor=NAVY,leading=11))],
+        [Paragraph(fmt(val),s('ev',fontName=FONT_SANS_BOLD,fontSize=13,textColor=NAVY,leading=17))],
         [Paragraph(f'{pct_rev:.1f}% of revenue' if pct_rev is not None else '',s('ep',fontSize=7,textColor=GRAY,leading=10))],
     ]
     t=Table(data,colWidths=[33*mm])
@@ -211,7 +239,7 @@ def comparison_kpi_card(label, current_val, prev_val, is_pct=False):
             growth_str = '—'; gc = GRAY
     except:
         growth_str = '—'; gc = GRAY
-    growth_s = s('ckg', fontName='Helvetica-Bold', fontSize=7.5, textColor=gc, leading=10, alignment=TA_CENTER)
+    growth_s = s('ckg', fontName=FONT_SANS_BOLD, fontSize=7.5, textColor=gc, leading=10, alignment=TA_CENTER)
     prev_s   = s('ckp', fontSize=7, textColor=GRAY, leading=9, alignment=TA_CENTER)
     data = [
         [Paragraph(curr_display, ST_KPI_V)],
@@ -257,10 +285,10 @@ def expense_pie_chart(labels, values, w=80, h=85):
             pie.slices[i].strokeWidth = 0.5
             pie.slices[i].labelRadius = 1.15   # slightly tighter so labels stay inside drawing
             pie.slices[i].fontSize = 6.5
-            pie.slices[i].fontName = 'Helvetica-Bold'
+            pie.slices[i].fontName = FONT_SANS_BOLD
         dw.add(pie)
         dw.add(String(w/2*mm, 4*mm, 'Expense Mix',
-                     fontSize=7, fillColor=GRAY, textAnchor='middle', fontName='Helvetica-Bold'))
+                     fontSize=7, fillColor=GRAY, textAnchor='middle', fontName=FONT_SANS_BOLD))
         return dw
     except Exception:
         return None
@@ -296,11 +324,11 @@ def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=
             if bar_h > 7*mm:
                 dw.add(String(x + bw/2, y_bot + bar_h/2 - 1*mm, text,
                               fontSize=6.5, fillColor=color,
-                              textAnchor='middle', fontName='Helvetica-Bold'))
+                              textAnchor='middle', fontName=FONT_SANS_BOLD))
 
         def axis_label(x, text):
             dw.add(String(x + bw/2, base_y - 10*mm, text, fontSize=6.5,
-                          fillColor=GRAY, textAnchor='middle', fontName='Helvetica-Bold'))
+                          fillColor=GRAY, textAnchor='middle', fontName=FONT_SANS_BOLD))
 
         full_h = ht(rev); gp_h = ht(gross); cogs_h = ht(cogs)
         net_h  = ht(max(net, 0)); opex_h = ht(opex); pad_h = full_h - net_h - opex_h
@@ -367,15 +395,15 @@ def tax_estimate_section(net_profit, C_ACCENT):
         tax_est = np_val * rate
         after_tax = np_val - tax_est
         rows = [
-            [Paragraph('Corporation Tax Estimate (UK)', s('txh', fontName='Helvetica-Bold', fontSize=8, textColor=WHITE, leading=12)),
+            [Paragraph('Corporation Tax Estimate (UK)', s('txh', fontName=FONT_SANS_BOLD, fontSize=8, textColor=WHITE, leading=12)),
              Paragraph('', ST_TD), Paragraph('', ST_TD)],
             [Paragraph('Net Profit', ST_TD_L),
              Paragraph(fmt(np_val), ST_TD), Paragraph('', ST_TD)],
             [Paragraph(f'Estimated Tax ({rate_note})', ST_TD_L),
              Paragraph(f'({fmt(tax_est)})', s('txr', fontSize=8, textColor=RED_TEXT, alignment=TA_RIGHT, leading=11)),
              Paragraph('', ST_TD)],
-            [Paragraph('Estimated Profit After Tax', s('txb', fontName='Helvetica-Bold', fontSize=9, textColor=NAVY, leading=13)),
-             Paragraph(fmt(after_tax), s('txbr', fontName='Helvetica-Bold', fontSize=9, textColor=NAVY, alignment=TA_RIGHT, leading=13)),
+            [Paragraph('Estimated Profit After Tax', s('txb', fontName=FONT_SANS_BOLD, fontSize=9, textColor=NAVY, leading=13)),
+             Paragraph(fmt(after_tax), s('txbr', fontName=FONT_SANS_BOLD, fontSize=9, textColor=NAVY, alignment=TA_RIGHT, leading=13)),
              Paragraph('Estimate only — consult your accountant for exact liability.',
                       s('txn', fontSize=7, textColor=GRAY, leading=10))],
         ]
@@ -437,7 +465,7 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
 
                 # Faint background word
                 c.setFillColor(colors.Color(14/255, 138/255, 122/255, 0.055))
-                c.setFont('Helvetica-Bold', 95)
+                c.setFont(FONT_SERIF_BOLD, 95)
                 c.drawString(14*mm, ph*0.36, bg_word)
 
                 # ── Firm name area ─────────────────────────────────────────
@@ -461,19 +489,19 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                         img.drawOn(c, 14*mm, ph-28*mm)
                     except:
                         c.setFillColor(WHITE)
-                        c.setFont('Helvetica-Bold', 16)
+                        c.setFont(FONT_SERIF_BOLD, 16)
                         c.drawString(14*mm, ph-27*mm, prepared_by)
                 else:
                     fn_text  = prepared_by if is_wl else 'FinReportAI'
                     fn_color = WHITE if is_wl else GOLD
                     c.setFillColor(fn_color)
-                    c.setFont('Helvetica-Bold', 16)
+                    c.setFont(FONT_SERIF_BOLD, 16)
                     c.drawString(14*mm, ph-27*mm, fn_text)
 
                 # Tagline
                 if has_tag:
                     c.setFillColor(colors.HexColor('#9BB5D4'))
-                    c.setFont('Helvetica', 8.5)
+                    c.setFont(FONT_SANS, 8.5)
                     c.drawString(14*mm, ph-36*mm, wl_tagline)
 
                 # ── Gold accent rule ───────────────────────────────────────
@@ -485,13 +513,13 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                 c.setFillColor(TEAL)
                 c.roundRect(14*mm, pill_y, 42*mm, 7*mm, 1.5*mm, fill=1, stroke=0)
                 c.setFillColor(WHITE)
-                c.setFont('Helvetica-Bold', 6.5)
+                c.setFont(FONT_SANS_BOLD, 6.5)
                 c.drawCentredString(14*mm + 21*mm, pill_y + 2.5*mm, 'FINANCIAL REPORT')
 
                 # ── Business name ──────────────────────────────────────────
                 bname_y = ph*0.485
                 c.setFillColor(WHITE)
-                c.setFont('Helvetica-Bold', 26)
+                c.setFont(FONT_SERIF_BOLD, 26)
                 c.drawString(14*mm, bname_y, bname)
 
                 # Gold rule under business name
@@ -500,10 +528,10 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
 
                 # ── Period & currency ──────────────────────────────────────
                 c.setFillColor(colors.HexColor('#9BB5D4'))
-                c.setFont('Helvetica', 12)
+                c.setFont(FONT_SERIF_IT, 12)
                 c.drawString(14*mm, bname_y - 14*mm, period)
                 c.setFillColor(colors.HexColor('#5B7A9A'))
-                c.setFont('Helvetica', 9)
+                c.setFont(FONT_SANS, 9)
                 c.drawString(14*mm, bname_y - 23*mm, 'Currency: GBP (\xa3)')
 
                 # ── CONFIDENTIAL badge ─────────────────────────────────────
@@ -511,7 +539,7 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                 c.setFillColor(GOLD)
                 c.roundRect(14*mm, conf_y, 30*mm, 7*mm, 2*mm, fill=1, stroke=0)
                 c.setFillColor(NAVY)
-                c.setFont('Helvetica-Bold', 6)
+                c.setFont(FONT_SANS_BOLD, 6)
                 c.drawCentredString(14*mm + 15*mm, conf_y + 2.5*mm, 'CONFIDENTIAL')
 
                 # ── Bottom rule & ref ──────────────────────────────────────
@@ -519,7 +547,7 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                 c.setLineWidth(0.5)
                 c.line(0, 14*mm, pw, 14*mm)
                 c.setFillColor(colors.HexColor('#5B7A9A'))
-                c.setFont('Helvetica', 6)
+                c.setFont(FONT_SANS, 6)
                 c.drawString(14*mm, 8*mm,
                     f'Ref: {report_ref}   \xb7   Prepared by {prepared_by}   \xb7   Confidential')
 
@@ -532,12 +560,12 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
 def toc_elements(sections, C_ACCENT):
     try:
         items = [
-            Paragraph('Contents', s('toch', fontName='Helvetica-Bold', fontSize=14, textColor=NAVY, leading=20)),
+            Paragraph('Contents', s('toch', fontName=FONT_SANS_BOLD, fontSize=14, textColor=NAVY, leading=20)),
             Spacer(1, 8*mm),
         ]
         for i, sec in enumerate(sections, 1):
             row_t = Table([[
-                Paragraph(str(i), s(f'tocn{i}', fontName='Helvetica-Bold', fontSize=9, textColor=C_ACCENT, leading=15)),
+                Paragraph(str(i), s(f'tocn{i}', fontName=FONT_SANS_BOLD, fontSize=9, textColor=C_ACCENT, leading=15)),
                 Paragraph(sec.replace('&','&amp;'), s(f'tocl{i}', fontSize=9, textColor=DARK, leading=15)),
             ]], colWidths=[10*mm, 165*mm])
             row_t.setStyle(TableStyle([
@@ -572,7 +600,7 @@ def glossary_section(C_ACCENT):
         rows = [[Paragraph('Term', ST_TH_L), Paragraph('Definition', ST_TH_L)]]
         for i, (term, defn) in enumerate(terms):
             rows.append([
-                Paragraph(term, s(f'gt{i}', fontName='Helvetica-Bold', fontSize=8, textColor=NAVY, leading=13)),
+                Paragraph(term, s(f'gt{i}', fontName=FONT_SANS_BOLD, fontSize=8, textColor=NAVY, leading=13)),
                 Paragraph(defn, s(f'gd{i}', fontSize=8, textColor=colors.HexColor('#374151'), leading=13)),
             ])
         t = Table(rows, colWidths=[60*mm, 115*mm], repeatRows=1)
@@ -602,7 +630,7 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
         st=ST_BOLD if bold else (s('sub',fontSize=7.5,textColor=GRAY,leading=11) if sub else ST_TD_L)
         return Paragraph(p+str(txt),st)
     def cat(txt):
-        return [Paragraph(txt,s('cat',fontName='Helvetica-Bold',fontSize=7.5,textColor=TEAL,leading=11))] + ['']*(ncols+1)
+        return [Paragraph(txt,s('cat',fontName=FONT_SANS_BOLD,fontSize=7.5,textColor=TEAL,leading=11))] + ['']*(ncols+1)
     def blank():
         return [Paragraph(' ',s('sp',fontSize=2,leading=2))] + [' ']*(ncols+1)
 
@@ -700,7 +728,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
                 ch=((cv-pv)/abs(pv))*100
                 col = GREEN_TEXT if ch>=0 else RED_TEXT
                 txt = f"{'▲' if ch>=0 else '▼'} {abs(ch):.1f}%"
-                st = s('chg',fontName='Helvetica-Bold' if bold else 'Helvetica',fontSize=7.5,textColor=col,alignment=TA_RIGHT,leading=11)
+                st = s('chg',fontName=FONT_SANS_BOLD if bold else FONT_SANS,fontSize=7.5,textColor=col,alignment=TA_RIGHT,leading=11)
                 return Paragraph(txt,st)
         except: pass
         return Paragraph('—',ST_TD)
@@ -710,7 +738,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         return Paragraph(p+txt,st)
     def cat(txt):
         ncols_total = len(periods)+3
-        return [Paragraph(txt,s('cat',fontName='Helvetica-Bold',fontSize=7.5,textColor=C_ACCENT,leading=11))] + ['']*(ncols_total-1)
+        return [Paragraph(txt,s('cat',fontName=FONT_SANS_BOLD,fontSize=7.5,textColor=C_ACCENT,leading=11))] + ['']*(ncols_total-1)
     def blank():
         ncols_total = len(periods)+3
         return [Paragraph(' ',s('sp',fontSize=2,leading=2))] + [' ']*(ncols_total-1)
@@ -907,7 +935,7 @@ def build_report(d):
     # ── Slim page header (replaces the old full-width navy banner) ────────────
     slim_hdr = Table([[
         Paragraph(str(d.get('business_name', '')),
-            s('sh', fontName='Helvetica-Bold', fontSize=9, textColor=WHITE, leading=13)),
+            s('sh', fontName=FONT_SANS_BOLD, fontSize=9, textColor=WHITE, leading=13)),
         Paragraph(f"{d.get('period', '')}  ·  {prepared_by}",
             s('shr', fontSize=8, textColor=colors.HexColor('#9BB5D4'), leading=11, alignment=TA_RIGHT)),
     ]], colWidths=[90*mm, 85*mm])
@@ -924,7 +952,7 @@ def build_report(d):
     intro_parts = [section_header('Executive Summary', C_ACCENT), Spacer(1,3*mm)]
     if is_wl:
         intro_text = f"This report has been prepared by {wl_name} for {d.get('business_name','the client')} covering the period {str(d.get('period','')).split('—')[0].strip()}. It is intended for internal management use only."
-        intro_parts += [Paragraph(intro_text, s('intro',fontSize=8.5,textColor=colors.HexColor('#6B7280'),leading=13,fontName='Helvetica')),Spacer(1,3*mm)]
+        intro_parts += [Paragraph(intro_text, s('intro',fontSize=8.5,textColor=colors.HexColor('#6B7280'),leading=13,fontName=FONT_SANS)),Spacer(1,3*mm)]
     intro_parts += [Paragraph(str(d.get('executive_summary','No summary provided.')),ST_BODY),Spacer(1,4*mm)]
     story.append(KeepTogether(intro_parts))
 
@@ -955,7 +983,7 @@ def build_report(d):
     if periods and any(has_val(v) for v in period_rev):
         chart = bar_chart(periods, period_rev, show_trend=True)
         margin_rows=[
-            [Paragraph('Margin Analysis',s('ma',fontName='Helvetica-Bold',fontSize=8,textColor=NAVY,leading=12))],
+            [Paragraph('Margin Analysis',s('ma',fontName=FONT_SANS_BOLD,fontSize=8,textColor=NAVY,leading=12))],
             [Spacer(1,2*mm)],
         ]
         if has_val(d.get('gross_margin')):
@@ -1143,7 +1171,7 @@ def build_report(d):
                 rl_canvas.Canvas.showPage(self)
             rl_canvas.Canvas.save(self)
         def draw_page_number(self, page_count):
-            self.setFont('Helvetica', 7)
+            self.setFont(FONT_SANS, 7)
             self.setFillColor(colors.HexColor('#6B7280'))
             self.drawCentredString(A4[0]/2, 5*mm, f'Page {self._pageNumber} of {page_count}')
 
