@@ -269,92 +269,80 @@ def expense_pie_chart(labels, values, w=80, h=85):
 
 def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=80):
     try:
-        rev = clean(total_revenue)
+        rev  = clean(total_revenue)
         if not rev or rev <= 0: return None
-        cogs  = clean(total_cogs)  or 0
-        opex  = clean(total_opex)  or 0
-        np_v  = clean(net_profit)
+        cogs = clean(total_cogs) or 0
+        opex = clean(total_opex) or 0
+        np_v = clean(net_profit)
         gross = rev - cogs
         net   = np_v if np_v is not None else (gross - opex)
 
-        dw = Drawing(w*mm, h*mm)
-        base_y   = 14*mm
-        chart_h  = (h - 26)*mm   # leave room for labels above and axis/legend below
+        AMBER   = colors.HexColor('#D97706')
+        COGS_FADE = colors.HexColor('#6B2D2D')   # muted red for "already counted" COGS top
+
+        dw      = Drawing(w*mm, h*mm)
+        base_y  = 14*mm
+        chart_h = (h - 26)*mm
 
         def ht(val): return (max(val, 0) / rev) * chart_h if rev > 0 else 0
 
-        # 3 bars: Revenue | COGS + GP | OpEx + Net Profit
         avail = (w - 20)*mm
         bw    = min(36*mm, avail / 4)
         gap   = (avail - bw * 3) / 2
-
         def bx(i): return 10*mm + i*(bw + gap)
 
-        AMBER = colors.HexColor('#D97706')
-
         def label_in(x, y_bot, bar_h, text, color=WHITE):
-            """Draw label centred in a bar segment if it fits."""
             if bar_h > 7*mm:
                 dw.add(String(x + bw/2, y_bot + bar_h/2 - 3*mm, text,
                               fontSize=6.5, fillColor=color,
                               textAnchor='middle', fontName='Helvetica-Bold'))
 
-        def value_above(x, y_top, text, color=NAVY):
-            dw.add(String(x + bw/2, y_top + 1.5*mm, text,
-                          fontSize=6.5, fillColor=color,
-                          textAnchor='middle', fontName='Helvetica-Bold'))
-
         def axis_label(x, text):
             dw.add(String(x + bw/2, base_y - 8*mm, text,
                           fontSize=6, fillColor=GRAY, textAnchor='middle'))
 
-        # ── Bar 1: Revenue ────────────────────────────────────────────────────
-        rev_h = ht(rev)
-        dw.add(Rect(bx(0), base_y, bw, rev_h, fillColor=TEAL, strokeColor=None))
-        label_in(bx(0), base_y, rev_h, 'Revenue')
-        value_above(bx(0), base_y + rev_h, f'£{rev/1000:.0f}k', TEAL)
+        full_h  = ht(rev)
+        gp_h    = ht(gross)
+        cogs_h  = ht(cogs)
+        net_h   = ht(max(net, 0))
+        opex_h  = ht(opex)
+        # pad bar 3 to reach full revenue height
+        pad_h   = full_h - net_h - opex_h
+
+        # ── Bar 1: Revenue (solid) ─────────────────────────────────────────────
+        dw.add(Rect(bx(0), base_y, bw, full_h, fillColor=TEAL, strokeColor=None))
+        label_in(bx(0), base_y, full_h, f'Revenue  £{rev/1000:.0f}k')
         axis_label(bx(0), 'Revenue')
 
-        # ── Bar 2: COGS (red, top) + Gross Profit (teal, bottom) ─────────────
-        gp_h   = ht(gross)
-        cogs_h = ht(cogs)
-        if cogs > 0:
-            dw.add(Rect(bx(1), base_y,          bw, gp_h,   fillColor=TEAL,     strokeColor=None))
-            dw.add(Rect(bx(1), base_y + gp_h,   bw, cogs_h, fillColor=RED_TEXT,  strokeColor=None))
-            label_in(bx(1), base_y,        gp_h,   f'GP £{gross/1000:.0f}k')
-            label_in(bx(1), base_y+gp_h,   cogs_h, f'COGS £{cogs/1000:.0f}k')
-            value_above(bx(1), base_y + gp_h + cogs_h, f'£{rev/1000:.0f}k', GRAY)
-        else:
-            dw.add(Rect(bx(1), base_y, bw, gp_h, fillColor=TEAL, strokeColor=None))
-            label_in(bx(1), base_y, gp_h, 'Gross Profit')
-            value_above(bx(1), base_y + gp_h, f'£{gross/1000:.0f}k', TEAL)
+        # ── Bar 2: GP (teal) + COGS (red) = Revenue height ────────────────────
+        dw.add(Rect(bx(1), base_y,        bw, gp_h,   fillColor=TEAL,     strokeColor=None))
+        dw.add(Rect(bx(1), base_y+gp_h,   bw, cogs_h, fillColor=RED_TEXT,  strokeColor=None))
+        label_in(bx(1), base_y,       gp_h,   f'GP £{gross/1000:.0f}k')
+        label_in(bx(1), base_y+gp_h,  cogs_h, f'COGS £{cogs/1000:.0f}k')
         axis_label(bx(1), 'Cost Breakdown')
 
-        # ── Bar 3: OpEx (amber, top) + Net Profit (navy, bottom) ─────────────
-        net_h  = ht(max(net, 0))
-        opex_h = ht(opex)
-        if opex > 0:
-            dw.add(Rect(bx(2), base_y,         bw, net_h,  fillColor=NAVY,  strokeColor=None))
-            dw.add(Rect(bx(2), base_y + net_h, bw, opex_h, fillColor=AMBER, strokeColor=None))
-            label_in(bx(2), base_y,       net_h,  f'NP £{net/1000:.0f}k')
-            label_in(bx(2), base_y+net_h, opex_h, f'OpEx £{opex/1000:.0f}k')
-            value_above(bx(2), base_y + net_h + opex_h, f'£{gross/1000:.0f}k', GRAY)
-        else:
-            dw.add(Rect(bx(2), base_y, bw, net_h, fillColor=NAVY, strokeColor=None))
-            label_in(bx(2), base_y, net_h, 'Net Profit')
-            value_above(bx(2), base_y + net_h, f'£{net/1000:.0f}k', NAVY)
+        # ── Bar 3: NP (navy) + OpEx (amber) + pad (faded, = COGS) ────────────
+        # All three reach the same full revenue height so bars align cleanly
+        dw.add(Rect(bx(2), base_y,                  bw, net_h,  fillColor=NAVY,      strokeColor=None))
+        dw.add(Rect(bx(2), base_y+net_h,            bw, opex_h, fillColor=AMBER,     strokeColor=None))
+        if pad_h > 0:
+            dw.add(Rect(bx(2), base_y+net_h+opex_h, bw, pad_h,  fillColor=COGS_FADE, strokeColor=None))
+        label_in(bx(2), base_y,           net_h,  f'NP £{net/1000:.0f}k')
+        label_in(bx(2), base_y+net_h,     opex_h, f'OpEx £{opex/1000:.0f}k')
+        if pad_h > 7*mm:
+            label_in(bx(2), base_y+net_h+opex_h, pad_h, f'COGS £{cogs/1000:.0f}k')
         axis_label(bx(2), 'Profit Breakdown')
 
-        # ── Baseline ──────────────────────────────────────────────────────────
+        # ── Baseline ───────────────────────────────────────────────────────────
         dw.add(Line(8*mm, base_y, (w-5)*mm, base_y, strokeColor=BORDER, strokeWidth=0.5))
 
-        # ── Legend ────────────────────────────────────────────────────────────
+        # ── Legend ─────────────────────────────────────────────────────────────
         legend_y = 2*mm
-        items = [(TEAL,'Gross Profit / Revenue'), (RED_TEXT,'COGS'), (AMBER,'Operating Expenses'), (NAVY,'Net Profit')]
+        items = [(TEAL,'Gross Profit'),(RED_TEXT,'COGS'),(AMBER,'Operating Expenses'),(NAVY,'Net Profit')]
         lx = 10*mm
         for col, lbl in items:
             dw.add(Rect(lx, legend_y, 6, 6, fillColor=col, strokeColor=None))
-            dw.add(String(lx + 8, legend_y + 1, lbl, fontSize=5.5, fillColor=GRAY, textAnchor='start'))
+            dw.add(String(lx+8, legend_y+1, lbl, fontSize=5.5, fillColor=GRAY, textAnchor='start'))
             lx += 42*mm
 
         return dw
