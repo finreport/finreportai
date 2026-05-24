@@ -659,26 +659,16 @@ def health_score_section(score, C_ACCENT):
             x2 = cx + r*math.cos(a2); y2 = cy + r*math.sin(a2)
             dw.add(Line(x1,y1,x2,y2, strokeColor=fill_col, strokeWidth=stroke_w, strokeLineCap=1))
 
-        # Needle
+        # Needle — thin line with a clean circle pivot
         needle_angle = math.pi + filled*math.pi
-        nx = cx + (r-4*mm)*math.cos(needle_angle)
-        ny = cy + (r-4*mm)*math.sin(needle_angle)
-        dw.add(Line(cx, cy, nx, ny, strokeColor=NAVY, strokeWidth=2, strokeLineCap=1))
-        dw.add(Rect(cx-2.5, cy-2.5, 5, 5, fillColor=NAVY, strokeColor=None))
+        nx = cx + (r-6*mm)*math.cos(needle_angle)
+        ny = cy + (r-6*mm)*math.sin(needle_angle)
+        dw.add(Line(cx, cy, nx, ny, strokeColor=NAVY, strokeWidth=1.5, strokeLineCap=1))
+        dw.add(Rect(cx-3, cy-3, 6, 6, fillColor=NAVY, strokeColor=WHITE, strokeWidth=1))
 
-        # Score value — centred in the arc
-        dw.add(String(cx, cy+4*mm, f'{score_val:.0f}/10',
+        # Score value only — no label inside the wheel
+        dw.add(String(cx, cy+5*mm, f'{score_val:.0f}/10',
                      fontSize=20, fillColor=fill_col, textAnchor='middle', fontName=FONT_SERIF_BOLD))
-        dw.add(String(cx, cy-3*mm, 'Health Score',
-                     fontSize=7, fillColor=GRAY, textAnchor='middle', fontName=FONT_SANS))
-
-        # Scale labels at arc endpoints and bottom
-        dw.add(String(cx - r - 3*mm, cy - 1.5*mm, '1',
-                     fontSize=7, fillColor=RED_TEXT, textAnchor='end', fontName=FONT_SANS_BOLD))
-        dw.add(String(cx, cy - r - 5*mm, '5',
-                     fontSize=7, fillColor=GRAY, textAnchor='middle', fontName=FONT_SANS))
-        dw.add(String(cx + r + 3*mm, cy - 1.5*mm, '10',
-                     fontSize=7, fillColor=GREEN_TEXT, textAnchor='start', fontName=FONT_SANS_BOLD))
 
         return dw
     except Exception:
@@ -1669,6 +1659,7 @@ def build_report(d):
     try:
         gloss = glossary_section(C_ACCENT)
         if gloss:
+            story.append(PageBreak())
             story.append(KeepTogether([
                 section_header('Glossary of Financial Terms', C_ACCENT),
                 Spacer(1,3*mm), gloss, Spacer(1,5*mm),
