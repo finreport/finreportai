@@ -411,155 +411,141 @@ def tax_estimate_section(net_profit, C_ACCENT):
 
 def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, report_ref):
     try:
-        from reportlab.graphics.shapes import Drawing, Rect as GRect, Polygon, String as GString, Line as GLine
-        from reportlab.graphics import renderPDF
-
         bname  = str(d.get('business_name', 'Client Business'))
         period = str(d.get('period', ''))
-
-        # Background word: first word of business name for WL, "FIN" for standard
         bg_word = bname.split()[0].upper() if is_wl else 'FIN'
+        has_tag = is_wl and wl_tagline and wl_tagline.upper() not in ('NA','N/A','NONE','')
 
-        # Page dimensions inside margins: 175mm wide, 285mm tall
-        pw = 175*mm
-        ph = 285*mm
+        from reportlab.platypus import Flowable as _Flowable
 
-        # ── Canvas drawing ────────────────────────────────────────────────────
-        dw = Drawing(pw, ph)
-
-        # Navy background
-        dw.add(GRect(0, 0, pw, ph, fillColor=C_PRIMARY, strokeColor=None))
-
-        # Left teal accent bar
-        dw.add(GRect(0, 0, 4, ph, fillColor=TEAL, strokeColor=None))
-
-        # Teal angular shapes — bottom right (triangles via thin overlapping rects approximated as polygons)
-        # Polygon: bottom-right triangle
-        dw.add(Polygon(
-            points=[pw, 0, pw, ph*0.45, pw*0.35, 0],
-            fillColor=TEAL, strokeColor=None, fillOpacity=0.10
-        ))
-        dw.add(Polygon(
-            points=[pw, 0, pw, ph*0.32, pw*0.52, 0],
-            fillColor=TEAL, strokeColor=None, fillOpacity=0.08
-        ))
-
-        # Faint background word
-        dw.add(GString(
-            14*mm, ph*0.38,
-            bg_word,
-            fontSize=95, fillColor=TEAL, fillOpacity=0.055,
-            fontName='Helvetica-Bold', textAnchor='start'
-        ))
-
-        # ── Firm header ───────────────────────────────────────────────────────
-        # Double rule under firm name
-        dw.add(GLine(14*mm, ph-24*mm, pw-8*mm, ph-24*mm,
-                     strokeColor=TEAL, strokeWidth=0.5, strokeOpacity=0.4))
-        dw.add(GLine(14*mm, ph-24.8*mm, pw-8*mm, ph-24.8*mm,
-                     strokeColor=GOLD, strokeWidth=0.8, strokeOpacity=0.6))
-
-        # Gold accent rule above headline
-        dw.add(GRect(14*mm, ph*0.56, 18*mm, 2.5, fillColor=GOLD, strokeColor=None))
-
-        # ── FINANCIAL REPORT pill ─────────────────────────────────────────────
-        pill_y = ph*0.515
-        dw.add(GRect(14*mm, pill_y, 42*mm, 7*mm, rx=1.5, fillColor=TEAL, strokeColor=None))
-        dw.add(GString(
-            35*mm, pill_y + 5*mm,
-            'FINANCIAL REPORT',
-            fontSize=6.5, fillColor=WHITE,
-            fontName='Helvetica-Bold', textAnchor='middle'
-        ))
-
-        # ── CONFIDENTIAL badge ────────────────────────────────────────────────
-        conf_y = ph*0.24
-        dw.add(GRect(14*mm, conf_y, 30*mm, 7*mm, rx=2, fillColor=GOLD, strokeColor=None))
-        dw.add(GString(
-            29*mm, conf_y + 5*mm,
-            'CONFIDENTIAL',
-            fontSize=6, fillColor=NAVY,
-            fontName='Helvetica-Bold', textAnchor='middle'
-        ))
-
-        # Bottom rule
-        dw.add(GLine(0, 14*mm, pw, 14*mm,
-                     strokeColor=TEAL, strokeWidth=0.5, strokeOpacity=0.3))
-
-        # ── Ref line ─────────────────────────────────────────────────────────
-        dw.add(GString(
-            14*mm, 8*mm,
-            f'Ref: {report_ref}   ·   Prepared by {prepared_by}   ·   Confidential',
-            fontSize=6, fillColor=colors.HexColor('#5B7A9A'),
-            fontName='Helvetica', textAnchor='start'
-        ))
-
-        # ── Platypus wrapper ──────────────────────────────────────────────────
-        # We overlay text on top of the drawing using a Table
-        # Drawing goes in cell, then absolute-positioned text via nested table rows
-
-        # Build text rows on top — use a separate table layered via the story
-        from reportlab.platypus import Flowable
-
-        class CoverDrawing(Flowable):
-            def __init__(self, drawing, overlay_items):
-                Flowable.__init__(self)
-                self._drawing = drawing
-                self._overlay = overlay_items  # list of (x, y_from_top, paragraph)
-                self.width  = pw
-                self.height = ph
-
+        class CoverPage(_Flowable):
             def wrap(self, *args):
-                return self.width, self.height
+                return 175*mm, 285*mm
 
             def draw(self):
-                renderPDF.draw(self._drawing, self.canv, 0, 0)
-                for (x, y_from_top, para) in self._overlay:
-                    para.wrapOn(self.canv, pw - x - 8*mm, 40*mm)
-                    para.drawOn(self.canv, x, ph - y_from_top)
+                c   = self.canv
+                pw  = 175*mm
+                ph  = 285*mm
 
-        # Text overlay items: (x, y_from_top_of_page, paragraph)
-        overlay = []
+                # ── Background ─────────────────────────────────────────────
+                c.setFillColor(C_PRIMARY)
+                c.rect(0, 0, pw, ph, fill=1, stroke=0)
 
-        # Firm name
-        if is_wl and wl_logo and wl_logo.upper() not in ('NA','N/A','','NONE'):
-            try:
-                import urllib.request, tempfile
-                from reportlab.platypus import Image as RLImage
-                tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-                urllib.request.urlretrieve(wl_logo, tmp.name)
-                overlay.append((14*mm, 18*mm, RLImage(tmp.name, width=50*mm, height=10*mm, kind='proportional')))
-            except:
-                overlay.append((14*mm, 18*mm, Paragraph(prepared_by,
-                    s('cvfn', fontName='Helvetica-Bold', fontSize=16, textColor=WHITE, leading=20))))
-        else:
-            fn_text = prepared_by if is_wl else 'FinReportAI'
-            fn_color = WHITE if is_wl else GOLD
-            overlay.append((14*mm, 18*mm, Paragraph(fn_text,
-                s('cvfn', fontName='Helvetica-Bold', fontSize=16, textColor=fn_color, leading=20))))
+                # Left teal bar
+                c.setFillColor(TEAL)
+                c.rect(0, 0, 4, ph, fill=1, stroke=0)
 
-        # Tagline
-        has_tag = is_wl and wl_tagline and wl_tagline.upper() not in ('NA','N/A','NONE','')
-        if has_tag:
-            overlay.append((14*mm, 30*mm, Paragraph(wl_tagline,
-                s('cvtg', fontSize=8.5, textColor=colors.HexColor('#9BB5D4'), leading=12))))
+                # Teal angular shapes — bottom right
+                c.setFillColor(colors.Color(14/255, 138/255, 122/255, 0.13))
+                p = c.beginPath()
+                p.moveTo(pw, 0); p.lineTo(pw, ph*0.48); p.lineTo(pw*0.32, 0)
+                p.close(); c.drawPath(p, fill=1, stroke=0)
 
-        # Business name (large) — positioned at ~40% from top
-        overlay.append((14*mm, ph*0.415, Paragraph(
-            bname,
-            s('cvbiz', fontName='Helvetica-Bold', fontSize=28, textColor=WHITE, leading=36))))
+                c.setFillColor(colors.Color(14/255, 138/255, 122/255, 0.09))
+                p2 = c.beginPath()
+                p2.moveTo(pw, 0); p2.lineTo(pw, ph*0.30); p2.lineTo(pw*0.55, 0)
+                p2.close(); c.drawPath(p2, fill=1, stroke=0)
 
-        # Period
-        overlay.append((14*mm, ph*0.355, Paragraph(
-            period,
-            s('cvper', fontSize=12, textColor=colors.HexColor('#9BB5D4'), leading=16))))
+                # Faint background word
+                c.setFillColor(colors.Color(14/255, 138/255, 122/255, 0.055))
+                c.setFont('Helvetica-Bold', 95)
+                c.drawString(14*mm, ph*0.36, bg_word)
 
-        # Currency
-        overlay.append((14*mm, ph*0.33, Paragraph(
-            'Currency: GBP (£)',
-            s('cvgbp', fontSize=9, textColor=colors.HexColor('#5B7A9A'), leading=12))))
+                # ── Firm name area ─────────────────────────────────────────
+                # Double rule under firm header
+                c.setStrokeColor(colors.Color(14/255, 138/255, 122/255, 0.35))
+                c.setLineWidth(0.5)
+                c.line(14*mm, ph-26*mm, pw-8*mm, ph-26*mm)
+                c.setStrokeColor(colors.Color(201/255, 168/255, 76/255, 0.55))
+                c.setLineWidth(0.8)
+                c.line(14*mm, ph-27*mm, pw-8*mm, ph-27*mm)
 
-        return [CoverDrawing(dw, overlay), PageBreak()]
+                # Firm name text
+                if is_wl and wl_logo and wl_logo.upper() not in ('NA','N/A','','NONE'):
+                    try:
+                        import urllib.request, tempfile
+                        from reportlab.platypus import Image as RLImage
+                        tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+                        urllib.request.urlretrieve(wl_logo, tmp.name)
+                        img = RLImage(tmp.name, width=50*mm, height=10*mm, kind='proportional')
+                        img.wrapOn(c, 50*mm, 12*mm)
+                        img.drawOn(c, 14*mm, ph-18*mm)
+                    except:
+                        c.setFillColor(WHITE)
+                        c.setFont('Helvetica-Bold', 16)
+                        c.drawString(14*mm, ph-17*mm, prepared_by)
+                else:
+                    fn_text  = prepared_by if is_wl else 'FinReportAI'
+                    fn_color = WHITE if is_wl else GOLD
+                    c.setFillColor(fn_color)
+                    c.setFont('Helvetica-Bold', 16)
+                    c.drawString(14*mm, ph-17*mm, fn_text)
+
+                # Tagline
+                if has_tag:
+                    c.setFillColor(colors.HexColor('#9BB5D4'))
+                    c.setFont('Helvetica', 8.5)
+                    c.drawString(14*mm, ph-28*mm, wl_tagline)
+
+                # ── Gold accent rule above headline ────────────────────────
+                c.setFillColor(GOLD)
+                c.rect(14*mm, ph*0.555, 18*mm, 2, fill=1, stroke=0)
+
+                # ── FINANCIAL REPORT pill ──────────────────────────────────
+                pill_y = ph*0.515
+                c.setFillColor(TEAL)
+                c.roundRect(14*mm, pill_y, 42*mm, 7*mm, 1.5*mm, fill=1, stroke=0)
+                c.setFillColor(WHITE)
+                c.setFont('Helvetica-Bold', 6.5)
+                c.drawCentredString(14*mm + 21*mm, pill_y + 2.5*mm, 'FINANCIAL REPORT')
+
+                # ── Business name ──────────────────────────────────────────
+                bname_y = ph*0.44
+                # Split long names across two lines if needed
+                words = bname.split()
+                if len(words) > 2:
+                    line1 = ' '.join(words[:2])
+                    line2 = ' '.join(words[2:])
+                else:
+                    line1 = bname
+                    line2 = None
+                c.setFillColor(WHITE)
+                c.setFont('Helvetica-Bold', 28)
+                c.drawString(14*mm, bname_y, line1)
+                if line2:
+                    c.drawString(14*mm, bname_y - 12*mm, line2)
+
+                # Gold rule under business name
+                rule_y = bname_y - (14*mm if line2 else 4*mm)
+                c.setFillColor(GOLD)
+                c.rect(14*mm, rule_y, 22*mm, 2.5, fill=1, stroke=0)
+
+                # ── Period & currency ──────────────────────────────────────
+                c.setFillColor(colors.HexColor('#9BB5D4'))
+                c.setFont('Helvetica', 12)
+                c.drawString(14*mm, rule_y - 12*mm, period)
+                c.setFillColor(colors.HexColor('#5B7A9A'))
+                c.setFont('Helvetica', 9)
+                c.drawString(14*mm, rule_y - 21*mm, 'Currency: GBP (\xa3)')
+
+                # ── CONFIDENTIAL badge ─────────────────────────────────────
+                conf_y = ph*0.22
+                c.setFillColor(GOLD)
+                c.roundRect(14*mm, conf_y, 30*mm, 7*mm, 2*mm, fill=1, stroke=0)
+                c.setFillColor(NAVY)
+                c.setFont('Helvetica-Bold', 6)
+                c.drawCentredString(14*mm + 15*mm, conf_y + 2.5*mm, 'CONFIDENTIAL')
+
+                # ── Bottom rule & ref ──────────────────────────────────────
+                c.setStrokeColor(colors.Color(14/255, 138/255, 122/255, 0.3))
+                c.setLineWidth(0.5)
+                c.line(0, 14*mm, pw, 14*mm)
+                c.setFillColor(colors.HexColor('#5B7A9A'))
+                c.setFont('Helvetica', 6)
+                c.drawString(14*mm, 8*mm,
+                    f'Ref: {report_ref}   \xb7   Prepared by {prepared_by}   \xb7   Confidential')
+
+        return [CoverPage(), PageBreak()]
     except Exception:
         return []
 
