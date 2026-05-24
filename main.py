@@ -342,8 +342,8 @@ def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=
             (AMBER,    'Operating Expenses'),
             (NAVY,     'Net Profit'),
         ]
-        slot    = 38*mm
-        start_x = (w*mm - slot * len(legend_items)) / 2
+        start_x = 22.5*mm
+        slot    = 32.5*mm
         for i, (col, lbl) in enumerate(legend_items):
             lx = start_x + i * slot
             ly = 3*mm
