@@ -286,10 +286,11 @@ def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=
 
         def ht(val): return (max(val, 0) / rev) * chart_h if rev > 0 else 0
 
-        avail = (w - 20)*mm
-        bw    = min(36*mm, avail / 4)
-        gap   = (avail - bw * 3) / 2
-        def bx(i): return 10*mm + i*(bw + gap)
+        legend_w = 28*mm
+        avail    = w*mm - legend_w - 8*mm
+        bw       = min(36*mm, avail / 4)
+        gap      = (avail - bw * 3) / 2
+        def bx(i): return legend_w + i*(bw + gap)
 
         def label_in(x, y_bot, bar_h, text, color=WHITE):
             if bar_h > 7*mm:
@@ -298,34 +299,29 @@ def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=
                               textAnchor='middle', fontName='Helvetica-Bold'))
 
         def axis_label(x, text):
-            dw.add(String(x + bw/2, base_y - 10*mm, text,
-                          fontSize=6.5, fillColor=GRAY, textAnchor='middle',
-                          fontName='Helvetica-Bold'))
+            dw.add(String(x + bw/2, base_y - 10*mm, text, fontSize=6.5,
+                          fillColor=GRAY, textAnchor='middle', fontName='Helvetica-Bold'))
 
-        full_h = ht(rev)
-        gp_h   = ht(gross)
-        cogs_h = ht(cogs)
-        net_h  = ht(max(net, 0))
-        opex_h = ht(opex)
-        pad_h  = full_h - net_h - opex_h
+        full_h = ht(rev); gp_h = ht(gross); cogs_h = ht(cogs)
+        net_h  = ht(max(net, 0)); opex_h = ht(opex); pad_h = full_h - net_h - opex_h
 
-        # Bar 1: Revenue (teal — same colour as GP intentionally)
+        # Bar 1: Revenue
         dw.add(Rect(bx(0), base_y, bw, full_h, fillColor=TEAL, strokeColor=None))
         label_in(bx(0), base_y, full_h, f'Revenue £{rev/1000:.0f}k')
         axis_label(bx(0), 'Revenue')
 
-        # Bar 2: GP (teal, bottom) + COGS (red, top)
-        dw.add(Rect(bx(1), base_y,       bw, gp_h,   fillColor=TEAL,     strokeColor=None))
-        dw.add(Rect(bx(1), base_y+gp_h,  bw, cogs_h, fillColor=RED_TEXT,  strokeColor=None))
+        # Bar 2: GP + COGS
+        dw.add(Rect(bx(1), base_y,       bw, gp_h,   fillColor=TEAL,    strokeColor=None))
+        dw.add(Rect(bx(1), base_y+gp_h,  bw, cogs_h, fillColor=RED_TEXT, strokeColor=None))
         label_in(bx(1), base_y,      gp_h,   f'GP £{gross/1000:.0f}k')
         label_in(bx(1), base_y+gp_h, cogs_h, f'COGS £{cogs/1000:.0f}k')
         axis_label(bx(1), 'Cost Breakdown')
 
-        # Bar 3: NP (navy) + OpEx (amber) + faded COGS pad to equalise height
+        # Bar 3: NP + OpEx + faded COGS pad
         dw.add(Rect(bx(2), base_y,                   bw, net_h,  fillColor=NAVY,      strokeColor=None))
         dw.add(Rect(bx(2), base_y+net_h,             bw, opex_h, fillColor=AMBER,     strokeColor=None))
         if pad_h > 0:
-            dw.add(Rect(bx(2), base_y+net_h+opex_h,  bw, pad_h,  fillColor=COGS_FADE, strokeColor=None))
+            dw.add(Rect(bx(2), base_y+net_h+opex_h, bw, pad_h,  fillColor=COGS_FADE, strokeColor=None))
         label_in(bx(2), base_y,               net_h,  f'NP £{net/1000:.0f}k')
         label_in(bx(2), base_y+net_h,         opex_h, f'OpEx £{opex/1000:.0f}k')
         if pad_h > 7*mm:
@@ -333,25 +329,22 @@ def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=
         axis_label(bx(2), 'Profit Breakdown')
 
         # Baseline
-        dw.add(Line(8*mm, base_y, (w-5)*mm, base_y, strokeColor=BORDER, strokeWidth=0.5))
+        dw.add(Line(legend_w, base_y, (w-3)*mm, base_y, strokeColor=BORDER, strokeWidth=0.5))
 
-        # Legend — single flat row, 4 equal slots across full width
-        legend_items = [
+        # Legend — vertical, left side, top-aligned with bars
+        items = [
             (TEAL,     'Revenue / GP'),
             (RED_TEXT, 'COGS'),
-            (AMBER,    'Operating Expenses'),
+            (AMBER,    'OpEx'),
             (NAVY,     'Net Profit'),
         ]
-        items = [(TEAL,'Revenue / GP'),(RED_TEXT,'COGS'),(AMBER,'OpEx'),(NAVY,'Net Profit')]
-        swatch=2*mm; sw_gap=2*mm; between=8*mm
-        char_w=1.8*mm
-        text_widths=[len(lbl)*char_w for _,lbl in items]
-        total_legend=sum(swatch+sw_gap+tw for tw in text_widths)+between*(len(items)-1)
-        cx=(w*mm-total_legend)/2; ly=3*mm
-        for (col,lbl),tw in zip(items,text_widths):
-            dw.add(Rect(cx, ly+0.4*mm, swatch, swatch, fillColor=col, strokeColor=None))
-            dw.add(String(cx+swatch+sw_gap, ly+0.5, lbl, fontSize=6, fillColor=GRAY, textAnchor='start'))
-            cx+=swatch+sw_gap+tw+between
+        swatch = 2*mm; row_h = 5.5*mm
+        start_y = base_y + full_h - row_h
+        for i, (col, lbl) in enumerate(items):
+            ly = start_y - i * row_h
+            dw.add(Rect(1*mm, ly+0.3*mm, swatch, swatch, fillColor=col, strokeColor=None))
+            dw.add(String(1*mm+swatch+1.5*mm, ly+0.3, lbl,
+                          fontSize=6, fillColor=GRAY, textAnchor='start'))
 
         return dw
     except Exception:
