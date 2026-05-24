@@ -951,12 +951,14 @@ def build_report(d):
         exp_row=Table([cards],colWidths=[33*mm]*len(cards))
         exp_row.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
 
-        exp_section = [
+        # Header + cards kept together, pie flows separately
+        story.append(KeepTogether([
             section_header('Operating Expense Breakdown', C_ACCENT),
-            Spacer(1,3*mm),
-        ]
+            Spacer(1, 3*mm),
+            exp_row,
+        ]))
+        story.append(Spacer(1, 4*mm))
 
-        # Pie chart centred below expense cards
         try:
             if HAS_PIE and len(opex_with_totals) >= 2:
                 pie = expense_pie_chart(
@@ -972,15 +974,11 @@ def build_report(d):
                         ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
                         ('VALIGN',(0,0),(-1,-1),'TOP'),
                     ]))
-                    exp_section += [exp_row, Spacer(1, 6*mm), pie_row, Spacer(1, 5*mm)]
-                else:
-                    exp_section += [exp_row, Spacer(1, 5*mm)]
-            else:
-                exp_section += [exp_row, Spacer(1, 5*mm)]
+                    story.append(pie_row)
         except Exception:
-            exp_section += [exp_row, Spacer(1, 5*mm)]
+            pass
 
-        story.append(KeepTogether(exp_section))
+        story.append(Spacer(1, 5*mm))
 
     # ── P&L Table ─────────────────────────────────────────────────────────────
     if revenue_items or cogs_items or opex_items or has_val(d.get('total_revenue')):
