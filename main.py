@@ -154,7 +154,7 @@ def kpi_card(value, label, sub):
 
 def section_header(title, accent=None):
     ac = accent if accent is not None else TEAL
-    data=[[Paragraph(title.upper(),ST_SECTION)]]
+    data=[[Paragraph(title.upper().replace('&','&amp;'),ST_SECTION)]]
     t=Table(data,colWidths=[175*mm])
     t.setStyle(TableStyle([
         ('LINEBELOW',(0,0),(-1,-1),1,ac),
@@ -472,7 +472,7 @@ def toc_elements(sections, C_ACCENT):
         for i, sec in enumerate(sections, 1):
             row_t = Table([[
                 Paragraph(str(i), s(f'tocn{i}', fontName='Helvetica-Bold', fontSize=9, textColor=C_ACCENT, leading=15)),
-                Paragraph(sec, s(f'tocl{i}', fontSize=9, textColor=DARK, leading=15)),
+                Paragraph(sec.replace('&','&amp;'), s(f'tocl{i}', fontSize=9, textColor=DARK, leading=15)),
             ]], colWidths=[10*mm, 165*mm])
             row_t.setStyle(TableStyle([
                 ('TOPPADDING',(0,0),(-1,-1),4),('BOTTOMPADDING',(0,0),(-1,-1),4),
@@ -885,17 +885,6 @@ def build_report(d):
     ]))
     story.append(KeepTogether([kpi_row,Spacer(1,5*mm)]))
 
-    # ── Corporation Tax Estimate ──────────────────────────────────────────────
-    try:
-        tax_t = tax_estimate_section(d.get('net_profit'), C_ACCENT)
-        if tax_t:
-            story.append(KeepTogether([
-                section_header('Corporation Tax Estimate', C_ACCENT),
-                Spacer(1,3*mm), tax_t, Spacer(1,5*mm),
-            ]))
-    except Exception:
-        pass
-
     # ── Revenue Performance & Margins ─────────────────────────────────────────
     if periods and any(has_val(v) for v in period_rev):
         chart = bar_chart(periods, period_rev, show_trend=True)
@@ -993,6 +982,17 @@ def build_report(d):
                 story.append(KeepTogether([
                     section_header('P&L Waterfall', C_ACCENT),
                     Spacer(1,3*mm), wf, Spacer(1,5*mm),
+                ]))
+        except Exception:
+            pass
+
+        # ── Corporation Tax Estimate (after P&L) ─────────────────────────────
+        try:
+            tax_t = tax_estimate_section(d.get('net_profit'), C_ACCENT)
+            if tax_t:
+                story.append(KeepTogether([
+                    section_header('Corporation Tax Estimate', C_ACCENT),
+                    Spacer(1,3*mm), tax_t, Spacer(1,5*mm),
                 ]))
         except Exception:
             pass
