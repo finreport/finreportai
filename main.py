@@ -342,20 +342,16 @@ def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=
             (AMBER,    'Operating Expenses'),
             (NAVY,     'Net Profit'),
         ]
-        legend_items = [
-            (TEAL,     'Revenue / GP'),
-            (RED_TEXT, 'COGS'),
-            (AMBER,    'OpEx'),
-            (NAVY,     'Net Profit'),
-        ]
-        slot    = 36*mm
-        start_x = (w*mm - slot * 4) / 2
-        for i, (col, lbl) in enumerate(legend_items):
-            lx = start_x + i * slot
-            ly = 3*mm
-            dw.add(Rect(lx, ly, 6, 6, fillColor=col, strokeColor=None))
-            dw.add(String(lx + 9, ly + 0.5, lbl,
-                          fontSize=6, fillColor=GRAY, textAnchor='start'))
+        items = [(TEAL,'Revenue / GP'),(RED_TEXT,'COGS'),(AMBER,'OpEx'),(NAVY,'Net Profit')]
+        swatch=2*mm; sw_gap=2*mm; between=8*mm
+        char_w=1.8*mm
+        text_widths=[len(lbl)*char_w for _,lbl in items]
+        total_legend=sum(swatch+sw_gap+tw for tw in text_widths)+between*(len(items)-1)
+        cx=(w*mm-total_legend)/2; ly=3*mm
+        for (col,lbl),tw in zip(items,text_widths):
+            dw.add(Rect(cx, ly+0.4*mm, swatch, swatch, fillColor=col, strokeColor=None))
+            dw.add(String(cx+swatch+sw_gap, ly+0.5, lbl, fontSize=6, fillColor=GRAY, textAnchor='start'))
+            cx+=swatch+sw_gap+tw+between
 
         return dw
     except Exception:
