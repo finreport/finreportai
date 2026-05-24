@@ -943,42 +943,50 @@ def build_report(d):
 
     # ── Expense Breakdown + Pie chart ─────────────────────────────────────────
     if opex_with_totals:
-        cards=[]
+        cards = []
         for it in opex_with_totals[:5]:
-            tv = clean(it.get('total'))
-            pct = (tv/total_r*100) if (total_r and total_r>0) else None
+            tv  = clean(it.get('total'))
+            pct = (tv/total_r*100) if (total_r and total_r > 0) else None
             cards.append(exp_card(it.get('label','')[:16], tv, pct))
-        exp_row=Table([cards],colWidths=[33*mm]*len(cards))
-        exp_row.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
 
-        # Header + cards kept together, pie flows separately
+        # Row 1: first 3 cards, Row 2: remaining cards
+        row1_cards = cards[:3]; row2_cards = cards[3:]
+        cw = [38*mm] * len(row1_cards)
+        row1 = Table([row1_cards], colWidths=cw)
+        row1.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),1),('RIGHTPADDING',(0,0),(-1,-1),1),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
+
+        cards_block_rows = [[row1]]
+        if row2_cards:
+            cw2 = [38*mm] * len(row2_cards)
+            row2 = Table([row2_cards], colWidths=cw2)
+            row2.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),1),('RIGHTPADDING',(0,0),(-1,-1),1),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
+            cards_block_rows += [[Spacer(1,2*mm)],[row2]]
+
+        cards_block = Table(cards_block_rows, colWidths=[116*mm])
+        cards_block.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
+
+        try:
+            pie = expense_pie_chart(
+                [it.get('label','') for it in opex_with_totals],
+                [it.get('total') for it in opex_with_totals],
+                w=55, h=65,
+            ) if (HAS_PIE and len(opex_with_totals) >= 2) else None
+        except Exception:
+            pie = None
+
+        if pie:
+            combined = Table([[cards_block, pie]], colWidths=[118*mm, 57*mm])
+            combined.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'MIDDLE'),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
+            content = combined
+        else:
+            content = cards_block
+
         story.append(KeepTogether([
             section_header('Operating Expense Breakdown', C_ACCENT),
             Spacer(1, 3*mm),
-            exp_row,
+            content,
+            Spacer(1, 5*mm),
         ]))
-        story.append(Spacer(1, 4*mm))
-
-        try:
-            if HAS_PIE and len(opex_with_totals) >= 2:
-                pie = expense_pie_chart(
-                    [it.get('label','') for it in opex_with_totals],
-                    [it.get('total') for it in opex_with_totals],
-                )
-                if pie:
-                    side_pad = (175*mm - 80*mm) / 2
-                    pie_row = Table([[Spacer(1,1), pie, Spacer(1,1)]],
-                                    colWidths=[side_pad, 80*mm, side_pad])
-                    pie_row.setStyle(TableStyle([
-                        ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),
-                        ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
-                        ('VALIGN',(0,0),(-1,-1),'TOP'),
-                    ]))
-                    story.append(pie_row)
-        except Exception:
-            pass
-
-        story.append(Spacer(1, 5*mm))
 
     # ── P&L Table ─────────────────────────────────────────────────────────────
     if revenue_items or cogs_items or opex_items or has_val(d.get('total_revenue')):
