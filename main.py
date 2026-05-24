@@ -185,9 +185,9 @@ def section_header(title, accent=None):
 
 def flag_card(num, title, body, severity='WATCH'):
     color_map = {
-        'POSITIVE': (GREEN_TEXT, GREEN_SOFT,  '✓', 'Positive'),
+        'POSITIVE': (GREEN_TEXT, GREEN_SOFT,  '+', 'Positive'),
         'WATCH':    (AMBER_TEXT, AMBER_SOFT,  '!', 'Watch'),
-        'RISK':     (RED_TEXT,   RED_SOFT,    '✕', 'Risk'),
+        'RISK':     (RED_TEXT,   RED_SOFT,    'X', 'Risk'),
         'INFO':     (TEAL,       TEAL_LITE,   'i', 'Info'),
     }
     tc,bg,icon,label = color_map.get(severity.upper(), (AMBER_TEXT,AMBER_SOFT,'!','Watch'))
@@ -616,6 +616,333 @@ def glossary_section(C_ACCENT):
     except Exception:
         return None
 
+# ── Health score gauge ────────────────────────────────────────────────────────
+
+def health_score_section(score, C_ACCENT):
+    """Draw a semicircular gauge showing health score 1-10."""
+    try:
+        score_val = clean(score)
+        if score_val is None: return None
+        score_val = max(1, min(10, score_val))
+
+        import math
+        w, h = 90, 52
+        dw = Drawing(w*mm, h*mm)
+
+        cx = w/2*mm; cy = 10*mm; r = 32*mm; stroke_w = 8
+
+        # Background arc (gray)
+        steps = 60
+        for i in range(steps):
+            angle_start = math.pi + (i/steps)*math.pi
+            angle_end   = math.pi + ((i+1)/steps)*math.pi
+            x1 = cx + r*math.cos(angle_start); y1 = cy + r*math.sin(angle_start)
+            x2 = cx + r*math.cos(angle_end);   y2 = cy + r*math.sin(angle_end)
+            dw.add(Line(x1, y1, x2, y2, strokeColor=BORDER, strokeWidth=stroke_w+2, strokeLineCap=1))
+
+        # Coloured arc (score fill)
+        if score_val <= 3:   fill_col = RED_TEXT
+        elif score_val <= 6: fill_col = colors.HexColor('#D97706')
+        else:                fill_col = GREEN_TEXT
+
+        filled = score_val / 10
+        fill_steps = int(steps * filled)
+        for i in range(fill_steps):
+            angle_start = math.pi + (i/steps)*math.pi
+            angle_end   = math.pi + ((i+1)/steps)*math.pi
+            x1 = cx + r*math.cos(angle_start); y1 = cy + r*math.sin(angle_start)
+            x2 = cx + r*math.cos(angle_end);   y2 = cy + r*math.sin(angle_end)
+            dw.add(Line(x1, y1, x2, y2, strokeColor=fill_col, strokeWidth=stroke_w, strokeLineCap=1))
+
+        # Needle
+        needle_angle = math.pi + filled*math.pi
+        nx = cx + (r-2*mm)*math.cos(needle_angle)
+        ny = cy + (r-2*mm)*math.sin(needle_angle)
+        dw.add(Line(cx, cy, nx, ny, strokeColor=NAVY, strokeWidth=2, strokeLineCap=1))
+        dw.add(Rect(cx-2, cy-2, 4, 4, fillColor=NAVY, strokeColor=None))
+
+        # Score text
+        dw.add(String(cx, cy+6*mm, f'{score_val:.0f}/10',
+                     fontSize=18, fillColor=fill_col, textAnchor='middle', fontName=FONT_SERIF_BOLD))
+        dw.add(String(cx, cy-4*mm, 'Business Health Score',
+                     fontSize=7, fillColor=GRAY, textAnchor='middle', fontName=FONT_SANS))
+
+        # Labels
+        dw.add(String(cx - r - 2*mm, cy - 2*mm, '1', fontSize=6.5, fillColor=RED_TEXT, textAnchor='end'))
+        dw.add(String(cx, cy + r + 3*mm, '5', fontSize=6.5, fillColor=GRAY, textAnchor='middle'))
+        dw.add(String(cx + r + 2*mm, cy - 2*mm, '10', fontSize=6.5, fillColor=GREEN_TEXT, textAnchor='start'))
+
+        return dw
+    except Exception:
+        return None
+
+# ── Recommendations section ───────────────────────────────────────────────────
+
+def recommendations_elements(recommendations, C_ACCENT):
+    """Numbered action-item cards from recommendations list."""
+    try:
+        if isinstance(recommendations, str):
+            try: recommendations = json.loads(recommendations)
+            except:
+                recommendations = [r.strip() for r in recommendations.split('|') if r.strip()]
+        if not recommendations: return []
+
+        items = []
+        for i, rec in enumerate(recommendations[:5], 1):
+            num_s = s(f'rn{i}', fontName=FONT_SERIF_BOLD, fontSize=14, textColor=C_ACCENT,
+                      leading=18, alignment=TA_CENTER)
+            txt_s = s(f'rt{i}', fontName=FONT_SANS, fontSize=8.5, textColor=DARK, leading=13)
+            row = Table([[
+                Paragraph(str(i), num_s),
+                Paragraph(str(rec), txt_s),
+            ]], colWidths=[12*mm, 163*mm])
+            row.setStyle(TableStyle([
+                ('VALIGN',(0,0),(-1,-1),'TOP'),
+                ('TOPPADDING',(0,0),(-1,-1),6),('BOTTOMPADDING',(0,0),(-1,-1),6),
+                ('LEFTPADDING',(0,0),(0,0),0),('RIGHTPADDING',(0,0),(0,0),6),
+                ('LEFTPADDING',(1,0),(1,0),8),
+                ('LINEBELOW',(0,0),(-1,-1),0.3,BORDER),
+            ]))
+            items.append(row)
+            items.append(Spacer(1, 1*mm))
+        return items
+    except Exception:
+        return []
+
+# ── Forecast section ──────────────────────────────────────────────────────────
+
+def forecast_section(d, C_ACCENT):
+    """Next period revenue + profit projection cards with narrative."""
+    try:
+        f_period  = str(d.get('forecast_period','')).strip()
+        f_rev     = clean(d.get('forecast_revenue'))
+        f_profit  = clean(d.get('forecast_profit'))
+        f_text    = str(d.get('forecast_narrative','')).strip()
+
+        if not f_period and not f_rev and not f_text:
+            return []
+
+        curr_rev = clean(d.get('total_revenue'))
+        curr_np  = clean(d.get('net_profit'))
+
+        items = []
+
+        if f_rev or f_profit:
+            cards = []
+            if f_rev:
+                growth = ((f_rev - curr_rev)/curr_rev*100) if curr_rev else None
+                sub = f'+{growth:.1f}% vs current' if growth and growth >= 0 else (f'{growth:.1f}% vs current' if growth else '')
+                cards.append(kpi_card(fmt(f_rev), f'Projected Revenue', f_period or 'Next Period'))
+            if f_profit:
+                cards.append(kpi_card(fmt(f_profit), f'Projected Net Profit', f_period or 'Next Period'))
+            if cards:
+                row = Table([cards], colWidths=[38*mm]*len(cards))
+                row.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),
+                                         ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
+                items += [row, Spacer(1,4*mm)]
+
+        if f_text:
+            items.append(Paragraph(f_text, ST_BODY))
+
+        return items
+    except Exception:
+        return []
+
+# ── Cash flow section ─────────────────────────────────────────────────────────
+
+def cash_flow_section(d, C_ACCENT):
+    """Simple 3-line cash flow summary: operating, investing, financing."""
+    try:
+        op  = clean(d.get('cash_operating'))
+        inv = clean(d.get('cash_investing'))
+        fin = clean(d.get('cash_financing'))
+        net = clean(d.get('net_cash'))
+
+        if op is None and inv is None and fin is None and net is None:
+            return None
+
+        if net is None and op is not None:
+            net = (op or 0) + (inv or 0) + (fin or 0)
+
+        def cf_row(label, val, indent=False):
+            col = GREEN_TEXT if (val or 0) >= 0 else RED_TEXT
+            prefix = '    ' if indent else ''
+            return [
+                Paragraph(prefix+label, s(f'cfl{label}', fontName=FONT_SANS, fontSize=8, textColor=DARK, leading=12)),
+                Paragraph(fmt(val) if val is not None else '—',
+                         s(f'cfv{label}', fontName=FONT_SANS_BOLD if not indent else FONT_SANS,
+                           fontSize=8, textColor=col, leading=12, alignment=TA_RIGHT)),
+            ]
+
+        rows = [
+            [Paragraph('Activity', ST_TH_L), Paragraph('Amount', ST_TH)],
+        ]
+        if op  is not None: rows.append(cf_row('Operating Activities', op))
+        if inv is not None: rows.append(cf_row('Investing Activities', inv))
+        if fin is not None: rows.append(cf_row('Financing Activities', fin))
+
+        net_row = [
+            Paragraph('Net Cash Movement', s('cfn', fontName=FONT_SANS_BOLD, fontSize=9, textColor=NAVY, leading=13)),
+            Paragraph(fmt(net) if net is not None else '—',
+                     s('cfnv', fontName=FONT_SERIF_BOLD, fontSize=9,
+                       textColor=GREEN_TEXT if (net or 0) >= 0 else RED_TEXT,
+                       leading=13, alignment=TA_RIGHT)),
+        ]
+        rows.append(net_row)
+
+        t = Table(rows, colWidths=[130*mm, 45*mm], repeatRows=1)
+        t.setStyle(TableStyle([
+            ('BACKGROUND',(0,0),(-1,0),NAVY),
+            ('ROWBACKGROUNDS',(0,1),(-1,-2),[WHITE,OFFWHITE]),
+            ('BACKGROUND',(0,-1),(-1,-1),TEAL_LITE),
+            ('LINEABOVE',(0,-1),(-1,-1),1.5,NAVY),
+            ('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5),
+            ('LEFTPADDING',(0,0),(-1,-1),8),('RIGHTPADDING',(0,0),(-1,-1),8),
+            ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+        ]))
+        return t
+    except Exception:
+        return None
+
+# ── Balance sheet snapshot ────────────────────────────────────────────────────
+
+def balance_sheet_section(d, C_ACCENT):
+    """Assets / Liabilities / Equity snapshot."""
+    try:
+        assets   = clean(d.get('total_assets'))
+        curr_a   = clean(d.get('current_assets'))
+        liab     = clean(d.get('total_liabilities'))
+        curr_l   = clean(d.get('current_liabilities'))
+        equity   = clean(d.get('total_equity'))
+
+        if assets is None and liab is None and equity is None:
+            return None
+
+        # Auto-calc equity if missing
+        if equity is None and assets is not None and liab is not None:
+            equity = assets - liab
+
+        # Current ratio
+        curr_ratio = (curr_a / curr_l) if curr_a and curr_l and curr_l > 0 else None
+
+        rows = [[Paragraph('Balance Sheet Item', ST_TH_L), Paragraph('Value', ST_TH)]]
+
+        def bs_row(label, val, bold=False):
+            ls = s(f'bs{label}', fontName=FONT_SANS_BOLD if bold else FONT_SANS,
+                   fontSize=8, textColor=NAVY if bold else DARK, leading=12)
+            vs = s(f'bsv{label}', fontName=FONT_SANS_BOLD if bold else FONT_SANS,
+                   fontSize=8, textColor=NAVY if bold else DARK, leading=12, alignment=TA_RIGHT)
+            rows.append([Paragraph(label, ls), Paragraph(fmt(val) if val is not None else '—', vs)])
+
+        if curr_a  is not None: bs_row('Current Assets', curr_a)
+        if assets  is not None: bs_row('Total Assets', assets, bold=True)
+        if curr_l  is not None: bs_row('Current Liabilities', curr_l)
+        if liab    is not None: bs_row('Total Liabilities', liab, bold=True)
+        if equity  is not None: bs_row('Shareholders Equity', equity, bold=True)
+        if curr_ratio is not None:
+            rows.append([
+                Paragraph('Current Ratio', s('crt', fontName=FONT_SANS, fontSize=8, textColor=GRAY, leading=12)),
+                Paragraph(f'{curr_ratio:.2f}x',
+                         s('crv', fontName=FONT_SANS_BOLD, fontSize=8,
+                           textColor=GREEN_TEXT if curr_ratio >= 1.5 else (AMBER_TEXT if curr_ratio >= 1 else RED_TEXT),
+                           leading=12, alignment=TA_RIGHT)),
+            ])
+
+        t = Table(rows, colWidths=[130*mm, 45*mm], repeatRows=1)
+        t.setStyle(TableStyle([
+            ('BACKGROUND',(0,0),(-1,0),NAVY),
+            ('ROWBACKGROUNDS',(0,1),(-1,-1),[WHITE,OFFWHITE]),
+            ('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5),
+            ('LEFTPADDING',(0,0),(-1,-1),8),('RIGHTPADDING',(0,0),(-1,-1),8),
+            ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+            ('LINEBELOW',(0,0),(-1,0),1,C_ACCENT),
+        ]))
+        return t
+    except Exception:
+        return None
+
+# ── Goals & targets ───────────────────────────────────────────────────────────
+
+def goals_section(goals_raw, d, C_ACCENT):
+    """RAG status table comparing targets vs actuals."""
+    try:
+        if isinstance(goals_raw, str):
+            try: goals = json.loads(goals_raw)
+            except: return None
+        else:
+            goals = goals_raw
+        if not goals or not isinstance(goals, list): return None
+
+        rows = [[
+            Paragraph('Goal / KPI', ST_TH_L),
+            Paragraph('Target', ST_TH),
+            Paragraph('Actual', ST_TH),
+            Paragraph('Status', ST_TH),
+        ]]
+
+        for g in goals:
+            label  = str(g.get('label',''))
+            target = clean(g.get('target'))
+            actual = clean(g.get('actual'))
+            is_pct = g.get('is_pct', False)
+
+            if target is None: continue
+
+            def fv(v): return fmtp(v) if is_pct else fmt(v)
+
+            if actual is not None and target > 0:
+                ratio = actual / target
+                if ratio >= 0.95:   status, col, bg = 'On Track', GREEN_TEXT, GREEN_SOFT
+                elif ratio >= 0.80: status, col, bg = 'Watch',    AMBER_TEXT, AMBER_SOFT
+                else:               status, col, bg = 'Behind',   RED_TEXT,   RED_SOFT
+            else:
+                status, col, bg = 'No Data', GRAY, OFFWHITE
+
+            status_para = Paragraph(status, s(f'gs{label}', fontName=FONT_SANS_BOLD, fontSize=8,
+                                              textColor=col, alignment=TA_RIGHT, leading=11))
+            rows.append([
+                Paragraph(label, ST_TD_L),
+                Paragraph(fv(target) if target is not None else '—', ST_TD),
+                Paragraph(fv(actual) if actual is not None else '—', ST_TD),
+                status_para,
+            ])
+
+        t = Table(rows, colWidths=[70*mm, 35*mm, 35*mm, 35*mm], repeatRows=1)
+        t.setStyle(TableStyle([
+            ('BACKGROUND',(0,0),(-1,0),NAVY),
+            ('ROWBACKGROUNDS',(0,1),(-1,-1),[WHITE,OFFWHITE]),
+            ('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5),
+            ('LEFTPADDING',(0,0),(-1,-1),8),('RIGHTPADDING',(0,0),(-1,-1),8),
+            ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+            ('LINEBELOW',(0,0),(-1,0),1,C_ACCENT),
+        ]))
+        return t
+    except Exception:
+        return None
+
+# ── Accountant notes box ──────────────────────────────────────────────────────
+
+def accountant_notes_element(notes, C_ACCENT):
+    """Styled box for accountant's own commentary."""
+    try:
+        if not notes or str(notes).strip().upper() in ('NA','N/A','NONE',''): return None
+        note_s = s('an', fontName=FONT_SANS, fontSize=9, textColor=DARK, leading=14)
+        label_s = s('anl', fontName=FONT_SANS_BOLD, fontSize=7.5, textColor=C_ACCENT, leading=11)
+        t = Table([
+            [Paragraph("ACCOUNTANT'S NOTES", label_s)],
+            [Paragraph(str(notes), note_s)],
+        ], colWidths=[175*mm])
+        t.setStyle(TableStyle([
+            ('BOX',(0,0),(-1,-1),1,C_ACCENT),
+            ('LINEBEFORE',(0,0),(0,-1),4,C_ACCENT),
+            ('BACKGROUND',(0,0),(-1,-1),TEAL_LITE),
+            ('TOPPADDING',(0,0),(-1,-1),6),('BOTTOMPADDING',(0,0),(-1,-1),6),
+            ('LEFTPADDING',(0,0),(-1,-1),10),('RIGHTPADDING',(0,0),(-1,-1),8),
+        ]))
+        return t
+    except Exception:
+        return None
+
 # ── Dynamic P&L table ─────────────────────────────────────────────────────────
 
 def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
@@ -890,12 +1217,77 @@ def build_report(d):
     prev_opex_items    = get_list(d, 'prev_opex_items')
     is_comparison = has_val(d.get('prev_total_revenue')) and str(d.get('prev_total_revenue','')).upper() not in ('NA','N/A','NONE','')
 
+    # ── Auto-calculate per-period totals if Claude didn't supply them ─────────
+    for i, k in enumerate(periods_keys):
+        # Revenue per period
+        if not has_val(d.get('revenue_'+k)) and revenue_items:
+            total = sum(clean(it.get('values',[None]*10)[i]) or 0 for it in revenue_items if i < len(it.get('values',[])))
+            if total > 0: d['revenue_'+k] = total
+        # COGS per period
+        if not has_val(d.get('cogs_'+k)) and cogs_items:
+            total = sum(clean(it.get('values',[None]*10)[i]) or 0 for it in cogs_items if i < len(it.get('values',[])))
+            if total > 0: d['cogs_'+k] = total
+        # Gross profit per period
+        if not has_val(d.get('gross_profit_'+k)):
+            rev_k = clean(d.get('revenue_'+k))
+            cog_k = clean(d.get('cogs_'+k)) or sum(clean(it.get('values',[None]*10)[i]) or 0 for it in cogs_items if i < len(it.get('values',[])))
+            if rev_k: d['gross_profit_'+k] = rev_k - cog_k
+        # OpEx per period
+        if not has_val(d.get('opex_'+k)) and opex_items:
+            total = sum(clean(it.get('values',[None]*10)[i]) or 0 for it in opex_items if i < len(it.get('values',[])))
+            if total > 0: d['opex_'+k] = total
+        # Net profit per period
+        if not has_val(d.get('net_profit_'+k)):
+            gp_k   = clean(d.get('gross_profit_'+k))
+            opex_k = clean(d.get('opex_'+k)) or sum(clean(it.get('values',[None]*10)[i]) or 0 for it in opex_items if i < len(it.get('values',[])))
+            if gp_k is not None: d['net_profit_'+k] = gp_k - opex_k
+        # Net margin per period
+        if not has_val(d.get('net_margin_'+k)):
+            np_k  = clean(d.get('net_profit_'+k))
+            rev_k = clean(d.get('revenue_'+k))
+            if np_k is not None and rev_k and rev_k > 0:
+                d['net_margin_'+k] = (np_k / rev_k) * 100
+
     period_rev = [d.get('revenue_'+k) for k in periods_keys]
     opex_with_totals = [it for it in opex_items if has_val(it.get('total'))]
     total_r = clean(d.get('total_revenue'))
 
+    # ── New field extraction ──────────────────────────────────────────────────
+    health_score     = clean(d.get('health_score'))
+    recommendations  = d.get('recommendations')
+    forecast_period  = str(d.get('forecast_period','')).strip()
+    forecast_rev     = clean(d.get('forecast_revenue'))
+    forecast_profit  = clean(d.get('forecast_profit'))
+    forecast_text    = str(d.get('forecast_narrative','')).strip()
+    industry_context = str(d.get('industry_context','')).strip()
+    accountant_notes = str(d.get('accountant_notes','')).strip()
+    goals_raw        = d.get('client_targets')
+    client_logo      = str(d.get('client_logo','')).strip()
+    client_accent    = str(d.get('client_accent_colour','')).strip()
+    has_cashflow     = any(has_val(d.get(k)) for k in ['cash_operating','cash_investing','cash_financing','net_cash'])
+    has_balsheet     = any(has_val(d.get(k)) for k in ['total_assets','total_liabilities','total_equity'])
+    has_forecast     = bool(forecast_rev or forecast_profit or forecast_text)
+    has_goals        = bool(goals_raw and str(goals_raw).strip() not in ('','NA','N/A','NONE','[]'))
+    has_industry     = bool(industry_context and industry_context.upper() not in ('NA','N/A','NONE',''))
+    has_notes        = bool(accountant_notes and accountant_notes.upper() not in ('NA','N/A','NONE',''))
+    has_recs         = bool(recommendations and str(recommendations).strip() not in ('','NA','N/A','NONE','[]'))
+    has_health       = health_score is not None
+
+    # Per-client accent colour (overrides firm accent if provided)
+    def safe_colour(hex_val, fallback):
+        try:
+            if hex_val and hex_val.upper() not in ('NA','N/A','','NONE'):
+                h = hex_val.strip().lstrip('#')
+                if len(h) == 6: return colors.HexColor('#'+h)
+        except: pass
+        return fallback
+    if client_accent:
+        C_ACCENT = safe_colour(client_accent, C_ACCENT)
+
     # ── TOC section list ─────────────────────────────────────────────────────
     toc_sections = ['Executive Summary']
+    if has_health:
+        toc_sections.append('Business Health Score')
     if periods and any(has_val(v) for v in period_rev):
         toc_sections.append('Revenue Performance & Margins')
     if opex_with_totals:
@@ -904,14 +1296,28 @@ def build_report(d):
         toc_sections.append('Profit & Loss Statement')
         if has_val(d.get('total_cogs')) or has_val(d.get('total_opex')):
             toc_sections.append('P&L Waterfall')
+    if has_cashflow:
+        toc_sections.append('Cash Flow Summary')
+    if has_balsheet:
+        toc_sections.append('Balance Sheet Snapshot')
     if has_val(d.get('net_profit')) and (clean(d.get('net_profit')) or 0) > 0:
         toc_sections.append('Corporation Tax Estimate')
+    if has_goals:
+        toc_sections.append('Goals & Targets')
+    if has_industry:
+        toc_sections.append('Industry Context')
     if d.get('analysis'):
         toc_sections.append('Key Trends & Analysis')
+    if has_recs:
+        toc_sections.append('Recommendations')
+    if has_forecast:
+        toc_sections.append('Forecast')
     raw_flags = str(d.get('flags',''))
     flag_lines = [f.strip() for f in raw_flags.replace('FLAGSEP','\n').split('\n') if '|' in f and len(f.strip())>3]
     if flag_lines:
         toc_sections.append('Flags & Items to Watch')
+    if has_notes:
+        toc_sections.append("Accountant's Notes")
     if d.get('outlook'):
         toc_sections.append('Outlook')
     toc_sections.append('Glossary')
@@ -978,6 +1384,27 @@ def build_report(d):
         ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),
     ]))
     story.append(KeepTogether([kpi_row,Spacer(1,5*mm)]))
+
+    # ── Health Score ──────────────────────────────────────────────────────────
+    if has_health:
+        try:
+            gauge = health_score_section(health_score, C_ACCENT)
+            if gauge:
+                sv = clean(health_score)
+                if sv:
+                    if sv >= 8:   interp = 'Excellent — the business is performing strongly across all key metrics.'
+                    elif sv >= 6: interp = 'Good — solid performance with some areas to monitor.'
+                    elif sv >= 4: interp = 'Fair — notable areas requiring attention to maintain growth.'
+                    else:         interp = 'Needs attention — several key metrics require immediate focus.'
+                else: interp = ''
+                story.append(KeepTogether([
+                    section_header('Business Health Score', C_ACCENT), Spacer(1,3*mm), gauge,
+                    Spacer(1,2*mm),
+                    Paragraph(interp, s('hi', fontSize=8.5, textColor=GRAY, leading=13, fontName=FONT_SANS)),
+                    Spacer(1,5*mm),
+                ]))
+        except Exception:
+            pass
 
     # ── Revenue Performance & Margins ─────────────────────────────────────────
     if periods and any(has_val(v) for v in period_rev):
@@ -1087,6 +1514,49 @@ def build_report(d):
         except Exception:
             pass
 
+    # ── Cash Flow ─────────────────────────────────────────────────────────────
+    if has_cashflow:
+        try:
+            cf = cash_flow_section(d, C_ACCENT)
+            if cf:
+                story.append(KeepTogether([
+                    section_header('Cash Flow Summary', C_ACCENT),
+                    Spacer(1,3*mm), cf, Spacer(1,5*mm),
+                ]))
+        except Exception:
+            pass
+
+    # ── Balance Sheet ─────────────────────────────────────────────────────────
+    if has_balsheet:
+        try:
+            bs = balance_sheet_section(d, C_ACCENT)
+            if bs:
+                story.append(KeepTogether([
+                    section_header('Balance Sheet Snapshot', C_ACCENT),
+                    Spacer(1,3*mm), bs, Spacer(1,5*mm),
+                ]))
+        except Exception:
+            pass
+
+    # ── Goals & Targets ───────────────────────────────────────────────────────
+    if has_goals:
+        try:
+            goals_t = goals_section(goals_raw, d, C_ACCENT)
+            if goals_t:
+                story.append(KeepTogether([
+                    section_header('Goals & Targets', C_ACCENT),
+                    Spacer(1,3*mm), goals_t, Spacer(1,5*mm),
+                ]))
+        except Exception:
+            pass
+
+    # ── Industry Context ──────────────────────────────────────────────────────
+    if has_industry:
+        story.append(KeepTogether([
+            section_header('Industry Context', C_ACCENT), Spacer(1,3*mm),
+            Paragraph(industry_context, ST_BODY), Spacer(1,5*mm),
+        ]))
+
     # ── Key Trends ────────────────────────────────────────────────────────────
     if d.get('analysis'):
         story.append(KeepTogether([
@@ -1094,6 +1564,30 @@ def build_report(d):
             Paragraph(str(d.get('analysis')),ST_BODY),
             Spacer(1,5*mm),
         ]))
+
+    # ── Recommendations ───────────────────────────────────────────────────────
+    if has_recs:
+        try:
+            rec_els = recommendations_elements(recommendations, C_ACCENT)
+            if rec_els:
+                story.append(section_header('Recommendations', C_ACCENT))
+                story.append(Spacer(1,3*mm))
+                for el in rec_els: story.append(el)
+                story.append(Spacer(1,5*mm))
+        except Exception:
+            pass
+
+    # ── Forecast ──────────────────────────────────────────────────────────────
+    if has_forecast:
+        try:
+            fc_els = forecast_section(d, C_ACCENT)
+            if fc_els:
+                story.append(section_header('Forecast', C_ACCENT))
+                story.append(Spacer(1,3*mm))
+                for el in fc_els: story.append(el)
+                story.append(Spacer(1,5*mm))
+        except Exception:
+            pass
 
     # ── Flags ─────────────────────────────────────────────────────────────────
     if flag_lines:
@@ -1108,6 +1602,18 @@ def build_report(d):
                 severity='WATCH'; title='Flag'; body=fl.strip()
             story.append(KeepTogether([flag_card(i+1,title,body,severity),Spacer(1,2*mm)]))
         story.append(Spacer(1,4*mm))
+
+    # ── Accountant's Notes ────────────────────────────────────────────────────
+    if has_notes:
+        try:
+            notes_el = accountant_notes_element(accountant_notes, C_ACCENT)
+            if notes_el:
+                story.append(KeepTogether([
+                    section_header("Accountant's Notes", C_ACCENT),
+                    Spacer(1,3*mm), notes_el, Spacer(1,5*mm),
+                ]))
+        except Exception:
+            pass
 
     # ── Outlook ───────────────────────────────────────────────────────────────
     if d.get('outlook'):
