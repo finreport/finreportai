@@ -619,58 +619,66 @@ def glossary_section(C_ACCENT):
 # ── Health score gauge ────────────────────────────────────────────────────────
 
 def health_score_section(score, C_ACCENT):
-    """Draw a semicircular gauge showing health score 1-10."""
+    """Draw a speedometer-style gauge showing health score 1-10."""
     try:
+        import math
         score_val = clean(score)
         if score_val is None: return None
         score_val = max(1, min(10, score_val))
 
-        import math
-        w, h = 90, 52
+        w, h = 90, 56
         dw = Drawing(w*mm, h*mm)
 
-        cx = w/2*mm; cy = 10*mm; r = 32*mm; stroke_w = 8
+        # Centre high so the downward arc fits
+        cx = (w/2)*mm
+        cy = 40*mm
+        r  = 30*mm
+        stroke_w = 9
+        steps = 80
 
-        # Background arc (gray)
-        steps = 60
-        for i in range(steps):
-            angle_start = math.pi + (i/steps)*math.pi
-            angle_end   = math.pi + ((i+1)/steps)*math.pi
-            x1 = cx + r*math.cos(angle_start); y1 = cy + r*math.sin(angle_start)
-            x2 = cx + r*math.cos(angle_end);   y2 = cy + r*math.sin(angle_end)
-            dw.add(Line(x1, y1, x2, y2, strokeColor=BORDER, strokeWidth=stroke_w+2, strokeLineCap=1))
-
-        # Coloured arc (score fill)
         if score_val <= 3:   fill_col = RED_TEXT
         elif score_val <= 6: fill_col = colors.HexColor('#D97706')
         else:                fill_col = GREEN_TEXT
 
-        filled = score_val / 10
+        filled     = score_val / 10
         fill_steps = int(steps * filled)
+
+        # Gray background arc (pi → 2pi = left, down, right)
+        for i in range(steps):
+            a1 = math.pi + (i/steps)*math.pi
+            a2 = math.pi + ((i+1)/steps)*math.pi
+            x1 = cx + r*math.cos(a1); y1 = cy + r*math.sin(a1)
+            x2 = cx + r*math.cos(a2); y2 = cy + r*math.sin(a2)
+            dw.add(Line(x1,y1,x2,y2, strokeColor=BORDER, strokeWidth=stroke_w+2, strokeLineCap=1))
+
+        # Coloured filled arc
         for i in range(fill_steps):
-            angle_start = math.pi + (i/steps)*math.pi
-            angle_end   = math.pi + ((i+1)/steps)*math.pi
-            x1 = cx + r*math.cos(angle_start); y1 = cy + r*math.sin(angle_start)
-            x2 = cx + r*math.cos(angle_end);   y2 = cy + r*math.sin(angle_end)
-            dw.add(Line(x1, y1, x2, y2, strokeColor=fill_col, strokeWidth=stroke_w, strokeLineCap=1))
+            a1 = math.pi + (i/steps)*math.pi
+            a2 = math.pi + ((i+1)/steps)*math.pi
+            x1 = cx + r*math.cos(a1); y1 = cy + r*math.sin(a1)
+            x2 = cx + r*math.cos(a2); y2 = cy + r*math.sin(a2)
+            dw.add(Line(x1,y1,x2,y2, strokeColor=fill_col, strokeWidth=stroke_w, strokeLineCap=1))
 
         # Needle
         needle_angle = math.pi + filled*math.pi
-        nx = cx + (r-2*mm)*math.cos(needle_angle)
-        ny = cy + (r-2*mm)*math.sin(needle_angle)
+        nx = cx + (r-4*mm)*math.cos(needle_angle)
+        ny = cy + (r-4*mm)*math.sin(needle_angle)
         dw.add(Line(cx, cy, nx, ny, strokeColor=NAVY, strokeWidth=2, strokeLineCap=1))
-        dw.add(Rect(cx-2, cy-2, 4, 4, fillColor=NAVY, strokeColor=None))
+        dw.add(Rect(cx-2.5, cy-2.5, 5, 5, fillColor=NAVY, strokeColor=None))
 
-        # Score text
-        dw.add(String(cx, cy+6*mm, f'{score_val:.0f}/10',
-                     fontSize=18, fillColor=fill_col, textAnchor='middle', fontName=FONT_SERIF_BOLD))
-        dw.add(String(cx, cy-4*mm, 'Business Health Score',
+        # Score value — centred in the arc
+        dw.add(String(cx, cy+4*mm, f'{score_val:.0f}/10',
+                     fontSize=20, fillColor=fill_col, textAnchor='middle', fontName=FONT_SERIF_BOLD))
+        dw.add(String(cx, cy-3*mm, 'Health Score',
                      fontSize=7, fillColor=GRAY, textAnchor='middle', fontName=FONT_SANS))
 
-        # Labels
-        dw.add(String(cx - r - 2*mm, cy - 2*mm, '1', fontSize=6.5, fillColor=RED_TEXT, textAnchor='end'))
-        dw.add(String(cx, cy + r + 3*mm, '5', fontSize=6.5, fillColor=GRAY, textAnchor='middle'))
-        dw.add(String(cx + r + 2*mm, cy - 2*mm, '10', fontSize=6.5, fillColor=GREEN_TEXT, textAnchor='start'))
+        # Scale labels at arc endpoints and bottom
+        dw.add(String(cx - r - 3*mm, cy - 1.5*mm, '1',
+                     fontSize=7, fillColor=RED_TEXT, textAnchor='end', fontName=FONT_SANS_BOLD))
+        dw.add(String(cx, cy - r - 5*mm, '5',
+                     fontSize=7, fillColor=GRAY, textAnchor='middle', fontName=FONT_SANS))
+        dw.add(String(cx + r + 3*mm, cy - 1.5*mm, '10',
+                     fontSize=7, fillColor=GREEN_TEXT, textAnchor='start', fontName=FONT_SANS_BOLD))
 
         return dw
     except Exception:
@@ -767,9 +775,14 @@ def cash_flow_section(d, C_ACCENT):
         def cf_row(label, val, indent=False):
             col = GREEN_TEXT if (val or 0) >= 0 else RED_TEXT
             prefix = '    ' if indent else ''
+            v = clean(val)
+            if v is not None:
+                display = fmt(abs(v)) if v >= 0 else f'({fmt(abs(v))})'
+            else:
+                display = '—'
             return [
                 Paragraph(prefix+label, s(f'cfl{label}', fontName=FONT_SANS, fontSize=8, textColor=DARK, leading=12)),
-                Paragraph(fmt(val) if val is not None else '—',
+                Paragraph(display,
                          s(f'cfv{label}', fontName=FONT_SANS_BOLD if not indent else FONT_SANS,
                            fontSize=8, textColor=col, leading=12, alignment=TA_RIGHT)),
             ]
@@ -927,16 +940,14 @@ def accountant_notes_element(notes, C_ACCENT):
     try:
         if not notes or str(notes).strip().upper() in ('NA','N/A','NONE',''): return None
         note_s = s('an', fontName=FONT_SANS, fontSize=9, textColor=DARK, leading=14)
-        label_s = s('anl', fontName=FONT_SANS_BOLD, fontSize=7.5, textColor=C_ACCENT, leading=11)
         t = Table([
-            [Paragraph("ACCOUNTANT'S NOTES", label_s)],
             [Paragraph(str(notes), note_s)],
         ], colWidths=[175*mm])
         t.setStyle(TableStyle([
             ('BOX',(0,0),(-1,-1),1,C_ACCENT),
             ('LINEBEFORE',(0,0),(0,-1),4,C_ACCENT),
             ('BACKGROUND',(0,0),(-1,-1),TEAL_LITE),
-            ('TOPPADDING',(0,0),(-1,-1),6),('BOTTOMPADDING',(0,0),(-1,-1),6),
+            ('TOPPADDING',(0,0),(-1,-1),8),('BOTTOMPADDING',(0,0),(-1,-1),8),
             ('LEFTPADDING',(0,0),(-1,-1),10),('RIGHTPADDING',(0,0),(-1,-1),8),
         ]))
         return t
@@ -1396,11 +1407,42 @@ def build_report(d):
                     elif sv >= 6: interp = 'Good — solid performance with some areas to monitor.'
                     elif sv >= 4: interp = 'Fair — notable areas requiring attention to maintain growth.'
                     else:         interp = 'Needs attention — several key metrics require immediate focus.'
-                else: interp = ''
+                    if sv <= 3:   score_col = RED_TEXT
+                    elif sv <= 6: score_col = colors.HexColor('#D97706')
+                    else:         score_col = GREEN_TEXT
+                else:
+                    interp = ''; score_col = TEAL
+
+                score_label = s('hs_val', fontName=FONT_SERIF_BOLD, fontSize=32,
+                                textColor=score_col, leading=38, alignment=TA_CENTER)
+                score_sub   = s('hs_sub', fontName=FONT_SANS, fontSize=8,
+                                textColor=GRAY, leading=12, alignment=TA_CENTER)
+                interp_s    = s('hs_int', fontName=FONT_SANS, fontSize=9,
+                                textColor=DARK, leading=14)
+
+                right_col = Table([
+                    [Paragraph(f'{sv:.0f}/10', score_label)],
+                    [Paragraph('out of 10', score_sub)],
+                    [Spacer(1, 4*mm)],
+                    [Paragraph(interp, interp_s)],
+                ], colWidths=[85*mm])
+                right_col.setStyle(TableStyle([
+                    ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),
+                    ('LEFTPADDING',(0,0),(-1,-1),6),('RIGHTPADDING',(0,0),(-1,-1),0),
+                    ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+                ]))
+
+                combined_hs = Table([[gauge, right_col]], colWidths=[90*mm, 85*mm])
+                combined_hs.setStyle(TableStyle([
+                    ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+                    ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),
+                    ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
+                ]))
+
                 story.append(KeepTogether([
-                    section_header('Business Health Score', C_ACCENT), Spacer(1,3*mm), gauge,
-                    Spacer(1,2*mm),
-                    Paragraph(interp, s('hi', fontSize=8.5, textColor=GRAY, leading=13, fontName=FONT_SANS)),
+                    section_header('Business Health Score', C_ACCENT),
+                    Spacer(1,3*mm),
+                    combined_hs,
                     Spacer(1,5*mm),
                 ]))
         except Exception:
