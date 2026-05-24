@@ -936,10 +936,10 @@ def build_report(d):
         m_t.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
         combined=Table([[chart,m_t]],colWidths=[100*mm,75*mm])
         combined.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
-        story.append(KeepTogether([
-            section_header('Revenue Performance & Margins', C_ACCENT),
-            Spacer(1,3*mm), combined, Spacer(1,5*mm),
-        ]))
+        story.append(section_header('Revenue Performance & Margins', C_ACCENT))
+        story.append(Spacer(1,3*mm))
+        story.append(combined)
+        story.append(Spacer(1,5*mm))
 
     # ── Expense Breakdown + Pie chart ─────────────────────────────────────────
     if opex_with_totals:
