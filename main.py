@@ -1586,10 +1586,17 @@ def build_report(d):
         try:
             rec_els = recommendations_elements(recommendations, C_ACCENT)
             if rec_els:
-                story.append(section_header('Recommendations', C_ACCENT))
-                story.append(Spacer(1,3*mm))
-                for el in rec_els: story.append(el)
-                story.append(Spacer(1,5*mm))
+                # First item keeps the header with it — if it overflows, header follows
+                story.append(KeepTogether([
+                    section_header('Recommendations', C_ACCENT),
+                    Spacer(1,3*mm),
+                    rec_els[0],
+                    Spacer(1,1*mm),
+                ]))
+                for el in rec_els[1:]:
+                    story.append(el)
+                    story.append(Spacer(1,1*mm))
+                story.append(Spacer(1,4*mm))
         except Exception:
             pass
 
