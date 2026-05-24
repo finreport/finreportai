@@ -342,7 +342,19 @@ def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=
             (AMBER,     'Operating Expenses'),
             (NAVY,      'Net Profit'),
         ]
-        col_w   = 52*m
+        col_w   = 52*mm
+        start_x = (w*mm - col_w * 2) / 2
+        for i, (col, lbl) in enumerate(legend_items):
+            row   = i // 2          # 0 = top row, 1 = bottom row
+            col_i = i % 2
+            lx    = start_x + col_i * col_w
+            ly    = 5*mm - row * 4*mm   # top row at 5mm, bottom row at 1mm
+            dw.add(Rect(lx, ly, 6, 6, fillColor=col, strokeColor=None))
+            dw.add(String(lx + 9, ly + 0.5, lbl, fontSize=6, fillColor=GRAY, textAnchor='start'))
+
+        return dw
+    except Exception:
+        return None
 
 # ── Tax estimate ──────────────────────────────────────────────────────────────
 
