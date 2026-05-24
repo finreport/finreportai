@@ -420,12 +420,12 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
 
         class CoverPage(_Flowable):
             def wrap(self, *args):
-                return 175*mm, 285*mm
+                return 175*mm, 278*mm
 
             def draw(self):
                 c   = self.canv
                 pw  = 175*mm
-                ph  = 285*mm
+                ph  = 278*mm
 
                 # ── Background ─────────────────────────────────────────────
                 c.setFillColor(C_PRIMARY)
@@ -455,10 +455,10 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                 # Double rule under firm header
                 c.setStrokeColor(colors.Color(14/255, 138/255, 122/255, 0.35))
                 c.setLineWidth(0.5)
-                c.line(14*mm, ph-26*mm, pw-8*mm, ph-26*mm)
+                c.line(14*mm, ph-38*mm, pw-8*mm, ph-38*mm)
                 c.setStrokeColor(colors.Color(201/255, 168/255, 76/255, 0.55))
                 c.setLineWidth(0.8)
-                c.line(14*mm, ph-27*mm, pw-8*mm, ph-27*mm)
+                c.line(14*mm, ph-39*mm, pw-8*mm, ph-39*mm)
 
                 # Firm name text
                 if is_wl and wl_logo and wl_logo.upper() not in ('NA','N/A','','NONE'):
@@ -469,30 +469,30 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                         urllib.request.urlretrieve(wl_logo, tmp.name)
                         img = RLImage(tmp.name, width=50*mm, height=10*mm, kind='proportional')
                         img.wrapOn(c, 50*mm, 12*mm)
-                        img.drawOn(c, 14*mm, ph-18*mm)
+                        img.drawOn(c, 14*mm, ph-28*mm)
                     except:
                         c.setFillColor(WHITE)
                         c.setFont('Helvetica-Bold', 16)
-                        c.drawString(14*mm, ph-17*mm, prepared_by)
+                        c.drawString(14*mm, ph-27*mm, prepared_by)
                 else:
                     fn_text  = prepared_by if is_wl else 'FinReportAI'
                     fn_color = WHITE if is_wl else GOLD
                     c.setFillColor(fn_color)
                     c.setFont('Helvetica-Bold', 16)
-                    c.drawString(14*mm, ph-17*mm, fn_text)
+                    c.drawString(14*mm, ph-27*mm, fn_text)
 
                 # Tagline
                 if has_tag:
                     c.setFillColor(colors.HexColor('#9BB5D4'))
                     c.setFont('Helvetica', 8.5)
-                    c.drawString(14*mm, ph-28*mm, wl_tagline)
+                    c.drawString(14*mm, ph-36*mm, wl_tagline)
 
-                # ── Gold accent rule above headline ────────────────────────
+                # ── Gold accent rule ───────────────────────────────────────
                 c.setFillColor(GOLD)
-                c.rect(14*mm, ph*0.555, 18*mm, 2, fill=1, stroke=0)
+                c.rect(14*mm, ph*0.575, 18*mm, 2, fill=1, stroke=0)
 
                 # ── FINANCIAL REPORT pill ──────────────────────────────────
-                pill_y = ph*0.515
+                pill_y = ph*0.535
                 c.setFillColor(TEAL)
                 c.roundRect(14*mm, pill_y, 42*mm, 7*mm, 1.5*mm, fill=1, stroke=0)
                 c.setFillColor(WHITE)
@@ -500,33 +500,22 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                 c.drawCentredString(14*mm + 21*mm, pill_y + 2.5*mm, 'FINANCIAL REPORT')
 
                 # ── Business name ──────────────────────────────────────────
-                bname_y = ph*0.44
-                # Split long names across two lines if needed
-                words = bname.split()
-                if len(words) > 2:
-                    line1 = ' '.join(words[:2])
-                    line2 = ' '.join(words[2:])
-                else:
-                    line1 = bname
-                    line2 = None
+                bname_y = ph*0.485
                 c.setFillColor(WHITE)
-                c.setFont('Helvetica-Bold', 28)
-                c.drawString(14*mm, bname_y, line1)
-                if line2:
-                    c.drawString(14*mm, bname_y - 12*mm, line2)
+                c.setFont('Helvetica-Bold', 26)
+                c.drawString(14*mm, bname_y, bname)
 
                 # Gold rule under business name
-                rule_y = bname_y - (14*mm if line2 else 4*mm)
                 c.setFillColor(GOLD)
-                c.rect(14*mm, rule_y, 22*mm, 2.5, fill=1, stroke=0)
+                c.rect(14*mm, bname_y - 5*mm, 22*mm, 2.5, fill=1, stroke=0)
 
                 # ── Period & currency ──────────────────────────────────────
                 c.setFillColor(colors.HexColor('#9BB5D4'))
                 c.setFont('Helvetica', 12)
-                c.drawString(14*mm, rule_y - 12*mm, period)
+                c.drawString(14*mm, bname_y - 14*mm, period)
                 c.setFillColor(colors.HexColor('#5B7A9A'))
                 c.setFont('Helvetica', 9)
-                c.drawString(14*mm, rule_y - 21*mm, 'Currency: GBP (\xa3)')
+                c.drawString(14*mm, bname_y - 23*mm, 'Currency: GBP (\xa3)')
 
                 # ── CONFIDENTIAL badge ─────────────────────────────────────
                 conf_y = ph*0.22
