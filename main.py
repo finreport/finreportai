@@ -342,12 +342,13 @@ def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=
             (AMBER,    'Operating Expenses'),
             (NAVY,     'Net Profit'),
         ]
-        slot = w*mm / len(legend_items)
+        slot    = 38*mm
+        start_x = (w*mm - slot * len(legend_items)) / 2
         for i, (col, lbl) in enumerate(legend_items):
-            cx = i * slot + slot / 2   # centre of each slot
+            lx = start_x + i * slot
             ly = 3*mm
-            dw.add(Rect(cx - 10*mm, ly, 6, 6, fillColor=col, strokeColor=None))
-            dw.add(String(cx - 10*mm + 9, ly + 0.5, lbl,
+            dw.add(Rect(lx, ly, 6, 6, fillColor=col, strokeColor=None))
+            dw.add(String(lx + 9, ly + 0.5, lbl,
                           fontSize=6, fillColor=GRAY, textAnchor='start'))
 
         return dw
