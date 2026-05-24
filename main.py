@@ -109,21 +109,13 @@ def bar_chart(labels, values, w=100, h=44, show_trend=False):
     dw.add(Line(8*mm, base_y, w*mm-5*mm, base_y, strokeColor=BORDER, strokeWidth=0.5))
     if show_trend and len(vals) >= 2:
         try:
-            n_pts = len(vals)
-            mean_x = (n_pts - 1) / 2
-            mean_y = sum(vals) / n_pts
-            num = sum((i - mean_x) * (vals[i] - mean_y) for i in range(n_pts))
-            den = sum((i - mean_x)**2 for i in range(n_pts))
-            if den > 0:
-                slope = num / den
-                intercept = mean_y - slope * mean_x
-                x0 = 10*mm + bw/2
-                x1 = 10*mm + (n_pts-1)*(bw+gap) + bw/2
-                y0 = base_y + max(min(intercept/maxv, 1), 0) * chart_h
-                y1 = base_y + max(min((slope*(n_pts-1)+intercept)/maxv, 1), 0) * chart_h
-                tl = Line(x0, y0, x1, y1,
-                          strokeColor=GREEN_TEXT if slope >= 0 else RED_TEXT,
-                          strokeWidth=1.5)
+            overall_up = vals[-1] >= vals[0]
+            tc = GREEN_TEXT if overall_up else RED_TEXT
+            tops_x = [10*mm + i*(bw+gap) + bw/2 for i in range(len(vals))]
+            tops_y = [base_y + (v/maxv)*chart_h if maxv > 0 else base_y for v in vals]
+            for i in range(len(vals) - 1):
+                tl = Line(tops_x[i], tops_y[i], tops_x[i+1], tops_y[i+1],
+                          strokeColor=tc, strokeWidth=1.5)
                 tl.strokeDashArray = [4, 3]
                 dw.add(tl)
         except Exception:
@@ -237,7 +229,7 @@ def comparison_kpi_card(label, current_val, prev_val, is_pct=False):
 
 # ── Expense pie chart ─────────────────────────────────────────────────────────
 
-def expense_pie_chart(labels, values, w=70, h=70):
+def expense_pie_chart(labels, values, w=80, h=85):
     if not HAS_PIE:
         return None
     try:
@@ -251,10 +243,10 @@ def expense_pie_chart(labels, values, w=70, h=70):
             return None
         dw = Drawing(w*mm, h*mm)
         pie = RLPie()
-        pie.x = 2*mm
-        pie.y = 8*mm
-        pie.width = (w-4)*mm
-        pie.height = (h-12)*mm
+        pie.x = 5*mm
+        pie.y = 12*mm          # more bottom clearance for legend text
+        pie.width  = (w-10)*mm
+        pie.height = (h-20)*mm  # extra top clearance so labels don't clip
         pie.data = list(vals_f)
         pie.labels = [f'{v/total*100:.0f}%' for v in vals_f]
         palette = [TEAL, GOLD, colors.HexColor('#0B6E60'), NAVY, GRAY,
@@ -263,66 +255,108 @@ def expense_pie_chart(labels, values, w=70, h=70):
             pie.slices[i].fillColor = palette[i % len(palette)]
             pie.slices[i].strokeColor = WHITE
             pie.slices[i].strokeWidth = 0.5
-            pie.slices[i].labelRadius = 1.2
+            pie.slices[i].labelRadius = 1.15   # slightly tighter so labels stay inside drawing
             pie.slices[i].fontSize = 6.5
             pie.slices[i].fontName = 'Helvetica-Bold'
         dw.add(pie)
-        dw.add(String(w/2*mm, 3*mm, 'Expense Mix',
+        dw.add(String(w/2*mm, 4*mm, 'Expense Mix',
                      fontSize=7, fillColor=GRAY, textAnchor='middle', fontName='Helvetica-Bold'))
         return dw
     except Exception:
         return None
 
-# ── Waterfall chart ───────────────────────────────────────────────────────────
+# ── Waterfall chart — stacked bars ───────────────────────────────────────────
 
-def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=72):
+def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=80):
     try:
         rev = clean(total_revenue)
-        if not rev or rev <= 0:
-            return None
-        cogs = clean(total_cogs) or 0
-        opex = clean(total_opex) or 0
-        np_v = clean(net_profit)
-        bars = []
-        bars.append(('Revenue', 0, rev, TEAL))
+        if not rev or rev <= 0: return None
+        cogs  = clean(total_cogs)  or 0
+        opex  = clean(total_opex)  or 0
+        np_v  = clean(net_profit)
         gross = rev - cogs
-        if cogs > 0:
-            bars.append(('COGS', gross, rev, RED_TEXT))
-        if cogs > 0 and opex > 0:
-            bars.append(('Gross Profit', 0, gross, colors.HexColor('#0B7A6A')))
-        if opex > 0:
-            net_after = gross - opex
-            bars.append(('Op. Expenses', max(net_after, 0), gross, colors.HexColor('#9B1C1C')))
-        final_val = np_v if np_v is not None else (gross - opex)
-        bars.append(('Net Profit', 0, max(final_val, 0), NAVY if (final_val or 0) >= 0 else RED_TEXT))
-        if len(bars) < 2:
-            return None
+        net   = np_v if np_v is not None else (gross - opex)
+
         dw = Drawing(w*mm, h*mm)
-        n = len(bars)
-        avail = (w-20)*mm
-        bw = min(22*mm, avail / (n*1.5))
-        gap = (avail - bw*n) / max(n-1, 1)
-        base_y = 10*mm
-        chart_h = (h-18)*mm
-        for i, (label, bot, top, color) in enumerate(bars):
-            x = 10*mm + i*(bw+gap)
-            bar_y = base_y + (bot/rev)*chart_h
-            bar_h = max(((top-bot)/rev)*chart_h, 1)
-            dw.add(Rect(x, bar_y, bw, bar_h, fillColor=color, strokeColor=None))
-            if i < n-1:
-                connect_y = bar_y + bar_h
-                cl = Line(x+bw, connect_y, x+bw+gap, connect_y,
-                         strokeColor=BORDER, strokeWidth=0.5)
-                cl.strokeDashArray = [2, 2]
-                dw.add(cl)
-            dw.add(String(x+bw/2, base_y-7*mm, str(label)[:12],
-                         fontSize=5.5, fillColor=GRAY, textAnchor='middle'))
-            val = top - bot
-            is_sub = label in ('COGS', 'Op. Expenses')
-            lbl = f'(£{val/1000:.0f}k)' if is_sub else (f'£{val/1000:.0f}k' if val >= 1000 else fmt(val))
-            dw.add(String(x+bw/2, bar_y+bar_h+1.5*mm, lbl,
-                         fontSize=6, fillColor=color, textAnchor='middle', fontName='Helvetica-Bold'))
+        base_y   = 14*mm
+        chart_h  = (h - 26)*mm   # leave room for labels above and axis/legend below
+
+        def ht(val): return (max(val, 0) / rev) * chart_h if rev > 0 else 0
+
+        # 3 bars: Revenue | COGS + GP | OpEx + Net Profit
+        avail = (w - 20)*mm
+        bw    = min(36*mm, avail / 4)
+        gap   = (avail - bw * 3) / 2
+
+        def bx(i): return 10*mm + i*(bw + gap)
+
+        AMBER = colors.HexColor('#D97706')
+
+        def label_in(x, y_bot, bar_h, text, color=WHITE):
+            """Draw label centred in a bar segment if it fits."""
+            if bar_h > 7*mm:
+                dw.add(String(x + bw/2, y_bot + bar_h/2 - 3*mm, text,
+                              fontSize=6.5, fillColor=color,
+                              textAnchor='middle', fontName='Helvetica-Bold'))
+
+        def value_above(x, y_top, text, color=NAVY):
+            dw.add(String(x + bw/2, y_top + 1.5*mm, text,
+                          fontSize=6.5, fillColor=color,
+                          textAnchor='middle', fontName='Helvetica-Bold'))
+
+        def axis_label(x, text):
+            dw.add(String(x + bw/2, base_y - 8*mm, text,
+                          fontSize=6, fillColor=GRAY, textAnchor='middle'))
+
+        # ── Bar 1: Revenue ────────────────────────────────────────────────────
+        rev_h = ht(rev)
+        dw.add(Rect(bx(0), base_y, bw, rev_h, fillColor=TEAL, strokeColor=None))
+        label_in(bx(0), base_y, rev_h, 'Revenue')
+        value_above(bx(0), base_y + rev_h, f'£{rev/1000:.0f}k', TEAL)
+        axis_label(bx(0), 'Revenue')
+
+        # ── Bar 2: COGS (red, top) + Gross Profit (teal, bottom) ─────────────
+        gp_h   = ht(gross)
+        cogs_h = ht(cogs)
+        if cogs > 0:
+            dw.add(Rect(bx(1), base_y,          bw, gp_h,   fillColor=TEAL,     strokeColor=None))
+            dw.add(Rect(bx(1), base_y + gp_h,   bw, cogs_h, fillColor=RED_TEXT,  strokeColor=None))
+            label_in(bx(1), base_y,        gp_h,   f'GP £{gross/1000:.0f}k')
+            label_in(bx(1), base_y+gp_h,   cogs_h, f'COGS £{cogs/1000:.0f}k')
+            value_above(bx(1), base_y + gp_h + cogs_h, f'£{rev/1000:.0f}k', GRAY)
+        else:
+            dw.add(Rect(bx(1), base_y, bw, gp_h, fillColor=TEAL, strokeColor=None))
+            label_in(bx(1), base_y, gp_h, 'Gross Profit')
+            value_above(bx(1), base_y + gp_h, f'£{gross/1000:.0f}k', TEAL)
+        axis_label(bx(1), 'Cost Breakdown')
+
+        # ── Bar 3: OpEx (amber, top) + Net Profit (navy, bottom) ─────────────
+        net_h  = ht(max(net, 0))
+        opex_h = ht(opex)
+        if opex > 0:
+            dw.add(Rect(bx(2), base_y,         bw, net_h,  fillColor=NAVY,  strokeColor=None))
+            dw.add(Rect(bx(2), base_y + net_h, bw, opex_h, fillColor=AMBER, strokeColor=None))
+            label_in(bx(2), base_y,       net_h,  f'NP £{net/1000:.0f}k')
+            label_in(bx(2), base_y+net_h, opex_h, f'OpEx £{opex/1000:.0f}k')
+            value_above(bx(2), base_y + net_h + opex_h, f'£{gross/1000:.0f}k', GRAY)
+        else:
+            dw.add(Rect(bx(2), base_y, bw, net_h, fillColor=NAVY, strokeColor=None))
+            label_in(bx(2), base_y, net_h, 'Net Profit')
+            value_above(bx(2), base_y + net_h, f'£{net/1000:.0f}k', NAVY)
+        axis_label(bx(2), 'Profit Breakdown')
+
+        # ── Baseline ──────────────────────────────────────────────────────────
         dw.add(Line(8*mm, base_y, (w-5)*mm, base_y, strokeColor=BORDER, strokeWidth=0.5))
+
+        # ── Legend ────────────────────────────────────────────────────────────
+        legend_y = 2*mm
+        items = [(TEAL,'Gross Profit / Revenue'), (RED_TEXT,'COGS'), (AMBER,'Operating Expenses'), (NAVY,'Net Profit')]
+        lx = 10*mm
+        for col, lbl in items:
+            dw.add(Rect(lx, legend_y, 6, 6, fillColor=col, strokeColor=None))
+            dw.add(String(lx + 8, legend_y + 1, lbl, fontSize=5.5, fillColor=GRAY, textAnchor='start'))
+            lx += 42*mm
+
         return dw
     except Exception:
         return None
@@ -933,36 +967,29 @@ def build_report(d):
             Spacer(1,3*mm),
         ]
 
-        # Pie chart side-by-side with cards if 2+ items
+        # Pie chart centred below expense cards
         try:
             if HAS_PIE and len(opex_with_totals) >= 2:
                 pie = expense_pie_chart(
                     [it.get('label','') for it in opex_with_totals],
                     [it.get('total') for it in opex_with_totals],
-                    w=70, h=70
                 )
                 if pie:
-                    cards_w = len(cards) * 33*mm + (len(cards)-1)*2*mm
-                    gap_w = 175*mm - cards_w - 70*mm
-                    if gap_w >= 5*mm:
-                        combined_exp = Table(
-                            [[exp_row, Spacer(gap_w, 1), pie]],
-                            colWidths=[cards_w, gap_w, 70*mm]
-                        )
-                        combined_exp.setStyle(TableStyle([
-                            ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-                            ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),
-                            ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
-                        ]))
-                        exp_section += [combined_exp, Spacer(1,5*mm)]
-                    else:
-                        exp_section += [exp_row, Spacer(1,3*mm), pie, Spacer(1,5*mm)]
+                    side_pad = (175*mm - 80*mm) / 2
+                    pie_row = Table([[Spacer(1,1), pie, Spacer(1,1)]],
+                                    colWidths=[side_pad, 80*mm, side_pad])
+                    pie_row.setStyle(TableStyle([
+                        ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),
+                        ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
+                        ('VALIGN',(0,0),(-1,-1),'TOP'),
+                    ]))
+                    exp_section += [exp_row, Spacer(1, 6*mm), pie_row, Spacer(1, 5*mm)]
                 else:
-                    exp_section += [exp_row, Spacer(1,5*mm)]
+                    exp_section += [exp_row, Spacer(1, 5*mm)]
             else:
-                exp_section += [exp_row, Spacer(1,5*mm)]
+                exp_section += [exp_row, Spacer(1, 5*mm)]
         except Exception:
-            exp_section += [exp_row, Spacer(1,5*mm)]
+            exp_section += [exp_row, Spacer(1, 5*mm)]
 
         story.append(KeepTogether(exp_section))
 
@@ -1065,6 +1092,11 @@ def build_report(d):
         def __init__(self, *args, **kwargs):
             rl_canvas.Canvas.__init__(self, *args, **kwargs)
             self._saved_page_states = []
+            # Fill full A4 page with cover colour so side margins aren't white
+            self.saveState()
+            self.setFillColor(C_PRIMARY)
+            self.rect(0, 0, A4[0], A4[1], fill=1, stroke=0)
+            self.restoreState()
         def showPage(self):
             self._saved_page_states.append(dict(self.__dict__))
             self._startPage()
