@@ -1520,8 +1520,8 @@ def build_report(d):
                     section_header('P&L Waterfall', C_ACCENT),
                     Spacer(1,3*mm), wf, Spacer(1,5*mm),
                 ]))
-        except Exception:
-            pass
+    except Exception:
+        pass
 
         # ── Corporation Tax Estimate (after P&L) ─────────────────────────────
         try:
