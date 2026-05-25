@@ -1504,7 +1504,7 @@ def build_report(d):
     # ── P&L Table ─────────────────────────────────────────────────────────────
     if revenue_items or cogs_items or opex_items or has_val(d.get('total_revenue')):
                 story.append(section_header('Full Profit & Loss Statement', C_ACCENT))
-        story.append(Spacer(1,3*mm))
+                story.append(Spacer(1,3*mm))
         if is_comparison:
             story.append(comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, prev_revenue_items, prev_cogs_items, prev_opex_items, C_ACCENT))
         else:
