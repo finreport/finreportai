@@ -762,8 +762,11 @@ def forecast_section(d, C_ACCENT):
             if f_profit:
                 cards.append(kpi_card(fmt(f_profit), f'Projected Net Profit', f_period or 'Next Period'))
             if cards:
-                row = Table([cards], colWidths=[38*mm]*len(cards))
-                row.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),
+                total_w = 38*mm * len(cards) + 2*mm * (len(cards)-1)
+                pad = (175*mm - total_w) / 2
+                row = Table([[Spacer(pad,1)] + cards + [Spacer(pad,1)]],
+                            colWidths=[pad] + [38*mm]*len(cards) + [pad])
+                row.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),1),('RIGHTPADDING',(0,0),(-1,-1),1),
                                          ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
                 items += [row, Spacer(1,4*mm)]
 
@@ -1024,7 +1027,10 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
         if not has_val(cogs_total) and cogs_items:
             ssum = sum(clean(it.get('total')) or 0 for it in cogs_items)
             cogs_total = ssum if ssum>0 else None
-        cogs_period_vals = [sum(clean(it.get('values',[None]*99)[i]) or 0 for it in cogs_items if i < len(it.get('values',[]))) for i in range(ncols)]
+        cogs_period_vals = [
+            sum(clean(it.get('values',[None]*99)[i]) or 0 for it in cogs_items if i < len(it.get('values',[])))
+            for i in range(ncols)
+        ]
         rows.append(item_row({'label':'Total COGS','values':cogs_period_vals,'total':cogs_total}, bold=True, indent=False))
         teal_rows.append(len(rows)-1)
         rows.append(blank())
@@ -1043,7 +1049,10 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
         if not has_val(opex_total) and opex_items:
             ssum = sum(clean(it.get('total')) or 0 for it in opex_items)
             opex_total = ssum if ssum>0 else None
-            opex_period_vals = [sum(clean(it.get('values',[None]*99)[i]) or 0 for it in opex_items if i < len(it.get('values',[]))) for i in range(ncols)]
+        opex_period_vals = [
+            sum(clean(it.get('values',[None]*99)[i]) or 0 for it in opex_items if i < len(it.get('values',[])))
+            for i in range(ncols)
+        ]
         rows.append(item_row({'label':'Total Operating Expenses','values':opex_period_vals,'total':opex_total}, bold=True, indent=False))
         teal_rows.append(len(rows)-1)
         rows.append(blank())
@@ -1463,7 +1472,20 @@ def build_report(d):
         for it in opex_with_totals[:5]:
             tv  = clean(it.get('total'))
             pct = (tv/total_r*100) if (total_r and total_r > 0) else None
-            cards.append(exp_card(it.get('label','')[:16], tv, pct))
+            raw_lbl = it.get('label','')
+            # Truncate at word boundary max 16 chars
+            if len(raw_lbl) > 16:
+                words = raw_lbl.split()
+                lbl = ''
+                for w in words:
+                    if len(lbl) + len(w) + (1 if lbl else 0) <= 15:
+                        lbl += (' ' if lbl else '') + w
+                    else:
+                        break
+                if not lbl: lbl = raw_lbl[:15]
+            else:
+                lbl = raw_lbl
+            cards.append(exp_card(lbl, tv, pct))
 
         row1_cards = cards[:3]; row2_cards = cards[3:]
         row1 = Table([row1_cards], colWidths=[38*mm]*len(row1_cards))
@@ -1503,25 +1525,23 @@ def build_report(d):
 
     # ── P&L Table ─────────────────────────────────────────────────────────────
     if revenue_items or cogs_items or opex_items or has_val(d.get('total_revenue')):
-                story.append(section_header('Full Profit & Loss Statement', C_ACCENT))
-                story.append(Spacer(1,3*mm))
-    if is_comparison:
-        story.append(comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, prev_revenue_items, prev_cogs_items, prev_opex_items, C_ACCENT))
-    else:
-        story.append(pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items))
-    story.append(Spacer(1,5*mm))
-
+        story.append(KeepTogether([section_header('Full Profit & Loss Statement', C_ACCENT),Spacer(1,3*mm)]))
+        if is_comparison:
+            story.append(comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, prev_revenue_items, prev_cogs_items, prev_opex_items, C_ACCENT))
+        else:
+            story.append(pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items))
+        story.append(Spacer(1,5*mm))
 
         # Waterfall
-    try:
+        try:
             wf = waterfall_chart(d.get('total_revenue'), d.get('total_cogs'), d.get('total_opex'), d.get('net_profit'))
             if wf:
-                story.append(KeepTogether([
-                    section_header('P&L Waterfall', C_ACCENT),
-                    Spacer(1,3*mm), wf, Spacer(1,5*mm),
-                ]))
-    except Exception:
-        pass
+                story.append(section_header('P&L Waterfall', C_ACCENT))
+                story.append(Spacer(1,3*mm))
+                story.append(wf)
+                story.append(Spacer(1,5*mm))
+        except Exception:
+            pass
 
         # ── Corporation Tax Estimate (after P&L) ─────────────────────────────
         try:
@@ -1590,17 +1610,10 @@ def build_report(d):
         try:
             rec_els = recommendations_elements(recommendations, C_ACCENT)
             if rec_els:
-                # First item keeps the header with it — if it overflows, header follows
-                story.append(KeepTogether([
-                    section_header('Recommendations', C_ACCENT),
-                    Spacer(1,3*mm),
-                    rec_els[0],
-                    Spacer(1,1*mm),
-                ]))
-                for el in rec_els[1:]:
-                    story.append(el)
-                    story.append(Spacer(1,1*mm))
-                story.append(Spacer(1,4*mm))
+                story.append(section_header('Recommendations', C_ACCENT))
+                story.append(Spacer(1,3*mm))
+                for el in rec_els: story.append(el)
+                story.append(Spacer(1,5*mm))
         except Exception:
             pass
 
@@ -1655,12 +1668,11 @@ def build_report(d):
         gloss = glossary_section(C_ACCENT)
         if gloss:
             from reportlab.platypus import CondPageBreak
-            story.append(CondPageBreak(80*mm))
+            story.append(CondPageBreak(60*mm))
             story.append(KeepTogether([
                 section_header('Glossary of Financial Terms', C_ACCENT),
                 Spacer(1,3*mm), gloss, Spacer(1,5*mm),
             ]))
-
     except Exception:
         pass
 
