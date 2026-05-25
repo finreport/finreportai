@@ -1043,7 +1043,7 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
         if not has_val(opex_total) and opex_items:
             ssum = sum(clean(it.get('total')) or 0 for it in opex_items)
             opex_total = ssum if ssum>0 else None
-                opex_period_vals = [sum(clean(it.get('values',[None]*99)[i]) or 0 for it in opex_items if i < len(it.get('values',[]))) for i in range(ncols)]
+            opex_period_vals = [sum(clean(it.get('values',[None]*99)[i]) or 0 for it in opex_items if i < len(it.get('values',[]))) for i in range(ncols)]
         rows.append(item_row({'label':'Total Operating Expenses','values':opex_period_vals,'total':opex_total}, bold=True, indent=False))
         teal_rows.append(len(rows)-1)
         rows.append(blank())
