@@ -1020,11 +1020,12 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
     if cogs_items or has_val(d.get('total_cogs')):
         rows.append(cat('COST OF GOODS SOLD')); cat_rows.append(len(rows)-1)
         for it in cogs_items: rows.append(item_row(it))
-        cogs_total = d.get('total_cogs')
+                cogs_total = d.get('total_cogs')
         if not has_val(cogs_total) and cogs_items:
             ssum = sum(clean(it.get('total')) or 0 for it in cogs_items)
             cogs_total = ssum if ssum>0 else None
-        rows.append(item_row({'label':'Total COGS','values':[],'total':cogs_total}, bold=True, indent=False))
+        cogs_period_vals = [sum(clean(it.get('values',[None]*99)[i]) or 0 for it in cogs_items if i < len(it.get('values',[]))) for i in range(ncols)]
+        rows.append(item_row({'label':'Total COGS','values':cogs_period_vals,'total':cogs_total}, bold=True, indent=False))
         teal_rows.append(len(rows)-1)
         rows.append(blank())
 
