@@ -1513,7 +1513,7 @@ def build_report(d):
 
 
         # Waterfall
-        try:
+    try:
             wf = waterfall_chart(d.get('total_revenue'), d.get('total_cogs'), d.get('total_opex'), d.get('net_profit'))
             if wf:
                 story.append(KeepTogether([
