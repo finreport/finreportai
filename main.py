@@ -1654,11 +1654,13 @@ def build_report(d):
     try:
         gloss = glossary_section(C_ACCENT)
         if gloss:
-            story.append(PageBreak())
+            from reportlab.platypus import CondPageBreak
+            story.append(CondPageBreak(80*mm))
             story.append(KeepTogether([
                 section_header('Glossary of Financial Terms', C_ACCENT),
                 Spacer(1,3*mm), gloss, Spacer(1,5*mm),
             ]))
+
     except Exception:
         pass
 
