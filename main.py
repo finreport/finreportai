@@ -1482,7 +1482,8 @@ def build_report(d):
                         lbl += (' ' if lbl else '') + w
                     else:
                         break
-                if not lbl: lbl = raw_lbl[:15]
+                # Strip trailing conjunctions
+                lbl = lbl.rstrip(' &').rstrip(' and').rstrip(' or') or raw_lbl.split()[0]
             else:
                 lbl = raw_lbl
             cards.append(exp_card(lbl, tv, pct))
