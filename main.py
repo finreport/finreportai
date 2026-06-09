@@ -8,6 +8,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from reportlab.graphics.shapes import Drawing, Rect, String, Line, Polygon
 from reportlab.pdfgen import canvas as rl_canvas
+import requests as req
 
 try:
     from reportlab.pdfbase import pdfmetrics
@@ -1740,3 +1741,18 @@ def health():
 
 if __name__=='__main__':
     app.run(host='0.0.0.0',port=8000)
+
+@app.route('/ai-chat', methods=['POST'])
+def ai_chat():
+    data = request.get_json(force=True)
+    response = req.post(
+        'https://api.anthropic.com/v1/messages',
+        headers={
+            'x-api-key': 'YOUR_ANTHROPIC_API_KEY',
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+        },
+        json=data,
+        timeout=30,
+    )
+    return response.json(), response.status_code
