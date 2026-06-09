@@ -9,6 +9,7 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from reportlab.graphics.shapes import Drawing, Rect, String, Line, Polygon
 from reportlab.pdfgen import canvas as rl_canvas
 from flask_cors import CORS
+import os
 
 try:
     from reportlab.pdfbase import pdfmetrics
