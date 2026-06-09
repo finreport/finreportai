@@ -1748,6 +1748,9 @@ import requests as req
 
 @app.route('/ai-chat', methods=['POST', 'OPTIONS'])
 def ai_chat():
+    if request.method == 'OPTIONS':
+        response = app.make_default_options_response()
+        return response
     data = request.get_json(force=True)
     response = req.post(
         'https://api.anthropic.com/v1/messages',
