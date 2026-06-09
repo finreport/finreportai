@@ -8,7 +8,6 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from reportlab.graphics.shapes import Drawing, Rect, String, Line, Polygon
 from reportlab.pdfgen import canvas as rl_canvas
-import requests as req
 
 try:
     from reportlab.pdfbase import pdfmetrics
@@ -1741,6 +1740,8 @@ def health():
 
 if __name__=='__main__':
     app.run(host='0.0.0.0',port=8000)
+
+import requests as req
 
 @app.route('/ai-chat', methods=['POST'])
 def ai_chat():
