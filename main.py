@@ -8,6 +8,8 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from reportlab.graphics.shapes import Drawing, Rect, String, Line, Polygon
 from reportlab.pdfgen import canvas as rl_canvas
+from flask_cors import CORS
+CORS(app)
 
 try:
     from reportlab.pdfbase import pdfmetrics
