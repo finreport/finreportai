@@ -1746,7 +1746,7 @@ if __name__=='__main__':
 
 import requests as req
 
-@app.route('/ai-chat', methods=['POST'])
+@app.route('/ai-chat', methods=['POST', 'OPTIONS'])
 def ai_chat():
     data = request.get_json(force=True)
     response = req.post(
