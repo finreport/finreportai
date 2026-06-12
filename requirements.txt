@@ -3,3 +3,4 @@ reportlab
 gunicorn
 requests
 flask-cors
+stripe

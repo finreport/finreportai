@@ -1745,6 +1745,60 @@ if __name__=='__main__':
     app.run(host='0.0.0.0',port=8000)
 
 import requests as req
+import stripe
+
+stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
+STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
+
+@app.route('/stripe-webhook', methods=['POST'])
+def stripe_webhook():
+    payload = request.get_data()
+    sig_header = request.headers.get('Stripe-Signature')
+    try:
+        event = stripe.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+    except Exception:
+        return {'error': 'invalid'}, 400
+
+    if event['type'] == 'customer.subscription.created':
+        handle_subscription(event['data']['object'], 'active')
+    elif event['type'] == 'customer.subscription.deleted':
+        handle_subscription(event['data']['object'], 'inactive')
+    elif event['type'] == 'invoice.payment_failed':
+        handle_subscription(event['data']['object'].get('subscription'), 'payment_failed')
+
+    return {'status': 'ok'}, 200
+
+def handle_subscription(subscription, status):
+    try:
+        customer_id = subscription.get('customer') if isinstance(subscription, dict) else subscription
+        customer = stripe.Customer.retrieve(customer_id)
+        email = customer.get('email')
+        price_id = None
+        if isinstance(subscription, dict):
+            items = subscription.get('items', {}).get('data', [])
+            if items:
+                price_id = items[0].get('price', {}).get('id')
+
+        plan = 'standard'
+        if price_id == os.environ.get('STRIPE_WHITE_LABEL_PRICE_ID'):
+            plan = 'white_label'
+
+        active = status == 'active'
+
+        supabase_url = os.environ.get('SUPABASE_URL')
+        service_key = os.environ.get('SUPABASE_SERVICE_KEY')
+
+        req.patch(
+            f"{supabase_url}/rest/v1/firms?email=eq.{email}",
+            headers={
+                'apikey': service_key,
+                'Authorization': f'Bearer {service_key}',
+                'Content-Type': 'application/json',
+            },
+            json={'active': active, 'plan': plan},
+        )
+    except Exception as e:
+        print(f"handle_subscription error: {e}")
 
 @app.route('/ai-chat', methods=['POST', 'OPTIONS'])
 def ai_chat():
