@@ -118,7 +118,7 @@ def get_list(d, key):
 
 # ── Chart helpers ────────────────────────────────────────────────────────────
 
-def bar_chart(labels, values, w=100, h=44, show_trend=False):
+def bar_chart(labels, values, w=100, h=50, show_trend=False):
     vals = [clean(v) or 0 for v in values]
     avg = sum(vals) / len(vals) if vals else 0
     has_peak = avg > 0 and any(v > avg * 1.2 for v in vals)
@@ -128,7 +128,7 @@ def bar_chart(labels, values, w=100, h=44, show_trend=False):
     avail = (w - 20) * mm
     bw = min(14*mm, avail / (n*1.8))
     gap = (avail - bw*n) / max(n, 1)
-    base_y = 8*mm; chart_h = (h-12)*mm
+    base_y = 10*mm; chart_h = (h-16)*mm
     palette = [TEAL, colors.HexColor('#0B6E60'), colors.HexColor('#084F45'),
                colors.HexColor('#0A8A78'), colors.HexColor('#063D35'), colors.HexColor('#0D9E89')]
     for i,(v,l) in enumerate(zip(vals, labels)):
@@ -136,7 +136,7 @@ def bar_chart(labels, values, w=100, h=44, show_trend=False):
         x = 10*mm + i*(bw+gap)
         bh = (v/maxv)*chart_h if maxv > 0 else 1
         dw.add(Rect(x, base_y, bw, max(bh,1), fillColor=c, strokeColor=None))
-        dw.add(String(x+bw/2, base_y-7*mm, str(l)[:6], fontSize=6.5, fillColor=GRAY, textAnchor='middle'))
+        dw.add(String(x+bw/2, base_y-8*mm, str(l)[:6], fontSize=6.5, fillColor=GRAY, textAnchor='middle'))
         lab = f'£{v/1000:.0f}k' if v >= 1000 else f'£{v:.0f}'
         dw.add(String(x+bw/2, base_y+max(bh,1)+1.5*mm, lab, fontSize=6.5, fillColor=NAVY, textAnchor='middle', fontName=FONT_SANS_BOLD))
         if has_peak and avg > 0 and v > avg * 1.2:
@@ -170,12 +170,13 @@ def margin_bar(pct_val, label, color, w=65, h=10):
     return dw
 
 def kpi_card(value, label, sub):
-    sub_s = s('cs', fontName=FONT_SANS_BOLD, fontSize=7.5, textColor=TEAL, leading=10, alignment=TA_CENTER)
-    data=[[Paragraph(str(value),ST_KPI_V)],[Paragraph(str(label),ST_KPI_L)],[Paragraph(str(sub),sub_s)]]
+    sub_s   = s('cs', fontName=FONT_SANS_BOLD, fontSize=7.5, textColor=TEAL, leading=10, alignment=TA_CENTER)
+    empty_s = s('ke', fontSize=7, leading=9, alignment=TA_CENTER)
+    data=[[Paragraph(str(value),ST_KPI_V)],[Paragraph(str(label),ST_KPI_L)],[Paragraph(str(sub),sub_s)],[Paragraph('',empty_s)]]
     t=Table(data,colWidths=[38*mm])
     t.setStyle(TableStyle([
         ('BACKGROUND',(0,0),(-1,-1),WHITE),('BOX',(0,0),(-1,-1),0.75,BORDER),
-        ('TOPPADDING',(0,0),(-1,-1),6),('BOTTOMPADDING',(0,0),(-1,-1),6),
+        ('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5),
         ('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),
     ]))
     return t
@@ -588,7 +589,7 @@ def toc_elements(sections, C_ACCENT):
     try:
         items = [
             Paragraph('Contents', s('toch', fontName=FONT_SANS_BOLD, fontSize=14, textColor=NAVY, leading=20)),
-            Spacer(1, 8*mm),
+            Spacer(1, 5*mm),
         ]
         for i, sec in enumerate(sections, 1):
             row_t = Table([[
@@ -666,16 +667,18 @@ def health_kpi_card(score):
         val_s = s('hv', fontName=FONT_SERIF_BOLD, fontSize=17, textColor=tc, leading=21, alignment=TA_CENTER)
         lbl_s = s('hl', fontName=FONT_SANS, fontSize=7, textColor=tc, leading=9, alignment=TA_CENTER)
         sub_s = s('hs2', fontName=FONT_SANS_BOLD, fontSize=7.5, textColor=tc, leading=10, alignment=TA_CENTER)
+        empty_s = s('hke', fontSize=7, leading=9, alignment=TA_CENTER)
         data = [
             [Paragraph(f'{sv:.0f}/10', val_s)],
             [Paragraph('Health Score', lbl_s)],
             [Paragraph(label, sub_s)],
+            [Paragraph('', empty_s)],
         ]
         t = Table(data, colWidths=[38*mm])
         t.setStyle(TableStyle([
             ('BACKGROUND',(0,0),(-1,-1), bg),
             ('BOX',(0,0),(-1,-1), 0.75, tc),
-            ('TOPPADDING',(0,0),(-1,-1),6),('BOTTOMPADDING',(0,0),(-1,-1),6),
+            ('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5),
             ('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),
         ]))
         return t
@@ -1056,13 +1059,14 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
     rows = [hdr]
     cat_rows = []
     teal_rows = []
+    blank_rows = []
 
     if revenue_items:
         rows.append(cat('REVENUE')); cat_rows.append(len(rows)-1)
         for it in revenue_items: rows.append(item_row(it))
         tr = {'label':'Total Revenue','values':[d.get('revenue_'+k) for k in periods_keys] if show_periods else [],'total':d.get('total_revenue')}
         rows.append(item_row(tr, bold=True, indent=False)); teal_rows.append(len(rows)-1)
-        rows.append(blank())
+        rows.append(blank()); blank_rows.append(len(rows)-1)
 
     if cogs_items or has_val(d.get('total_cogs')):
         rows.append(cat('COST OF GOODS SOLD')); cat_rows.append(len(rows)-1)
@@ -1077,14 +1081,14 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
         ]
         rows.append(item_row({'label':'Total COGS','values':cogs_period_vals,'total':cogs_total}, bold=True, indent=False))
         teal_rows.append(len(rows)-1)
-        rows.append(blank())
+        rows.append(blank()); blank_rows.append(len(rows)-1)
 
     if has_val(d.get('gross_profit')):
         gp = {'label':'GROSS PROFIT','values':[d.get('gross_profit_'+k) for k in periods_keys] if show_periods else [],'total':d.get('gross_profit')}
         rows.append(item_row(gp, bold=True, indent=False)); teal_rows.append(len(rows)-1)
         if has_val(d.get('gross_margin')):
             rows.append([label('Gross Margin %', sub=True)] + [td('—')]*ncols + [td(fmtp(d.get('gross_margin')))] + [td('—')])
-        rows.append(blank())
+        rows.append(blank()); blank_rows.append(len(rows)-1)
 
     if opex_items or has_val(d.get('total_opex')):
         rows.append(cat('OPERATING EXPENSES')); cat_rows.append(len(rows)-1)
@@ -1105,7 +1109,7 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
         opex_lbl = Paragraph(f'Total Operating Expenses{opex_pct_sub}', ST_BOLD)
         rows.append(item_row({'label':'Total Operating Expenses','values':opex_period_vals,'total':opex_total}, bold=True, indent=False, lbl_override=opex_lbl))
         teal_rows.append(len(rows)-1)
-        rows.append(blank())
+        rows.append(blank()); blank_rows.append(len(rows)-1)
 
     np_row = {'label':'NET PROFIT','values':[d.get('net_profit_'+k) for k in periods_keys] if show_periods else [],'total':d.get('net_profit')}
     rows.append(item_row(np_row, bold=True, indent=False))
@@ -1128,6 +1132,9 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
     ]
     for ci in cat_rows: style.append(('SPAN',(0,ci),(-1,ci)))
     for ti in teal_rows: style.append(('BACKGROUND',(0,ti),(-1,ti),TEAL_LITE))
+    for bi in blank_rows:
+        style.append(('TOPPADDING',(0,bi),(-1,bi),0))
+        style.append(('BOTTOMPADDING',(0,bi),(-1,bi),0))
     t.setStyle(TableStyle(style))
     return t
 
@@ -1232,6 +1239,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
 
     rows = [hdr]
     teal_rows=[]
+    blank_rows=[]
 
     if revenue_items:
         rows.append(cat('REVENUE'))
@@ -1242,7 +1250,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         for k in periods_keys: tr_row.append(money(d.get('revenue_'+k),True))
         tr_row+=[money(tr_curr,True),money(tr_prev,True),pct_change(tr_curr,tr_prev,True)]
         rows.append(tr_row); teal_rows.append(len(rows)-1)
-        rows.append(blank())
+        rows.append(blank()); blank_rows.append(len(rows)-1)
 
     if cogs_items or has_val(d.get('total_cogs')):
         rows.append(cat('COST OF GOODS SOLD'))
@@ -1251,7 +1259,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         tc_curr=d.get('total_cogs'); tc_prev=d.get('prev_total_cogs')
         rows.append([label('Total COGS',bold=True)]+['—']*ncols+[money(tc_curr,True),money(tc_prev,True),pct_change(tc_curr,tc_prev,True)])
         teal_rows.append(len(rows)-1)
-        rows.append(blank())
+        rows.append(blank()); blank_rows.append(len(rows)-1)
 
     if has_val(d.get('gross_profit')):
         gp_curr=d.get('gross_profit'); gp_prev=d.get('prev_gross_profit')
@@ -1259,7 +1267,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         teal_rows.append(len(rows)-1)
         if has_val(d.get('gross_margin')):
             rows.append([label('Gross Margin %',sub=True)]+['—']*ncols+[td(fmtp(d.get('gross_margin'))),td(fmtp(d.get('prev_gross_margin'))),td('—')])
-        rows.append(blank())
+        rows.append(blank()); blank_rows.append(len(rows)-1)
 
     if opex_items or has_val(d.get('total_opex')):
         rows.append(cat('OPERATING EXPENSES'))
@@ -1268,7 +1276,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         to_curr=d.get('total_opex'); to_prev=d.get('prev_total_opex')
         rows.append([label('Total OpEx',bold=True)]+['—']*ncols+[money(to_curr,True),money(to_prev,True),pct_change(to_curr,to_prev,True)])
         teal_rows.append(len(rows)-1)
-        rows.append(blank())
+        rows.append(blank()); blank_rows.append(len(rows)-1)
 
     np_curr=d.get('net_profit'); np_prev=d.get('prev_net_profit')
     np_row=[label('NET PROFIT',bold=True)]
@@ -1293,6 +1301,9 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
     ]
     for ti in teal_rows: style_cmds.append(('BACKGROUND',(0,ti),(-1,ti),TEAL_LITE))
+    for bi in blank_rows:
+        style_cmds.append(('TOPPADDING',(0,bi),(-1,bi),0))
+        style_cmds.append(('BOTTOMPADDING',(0,bi),(-1,bi),0))
     t.setStyle(TableStyle(style_cmds))
     return t
 
@@ -1808,21 +1819,22 @@ def build_report(d):
         ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
     ]))
     story.append(slim_hdr)
-    story.append(Spacer(1,5*mm))
+    story.append(Spacer(1,3*mm))
 
     # ── Executive Summary ─────────────────────────────────────────────────────
-    intro_parts = [section_header('Executive Summary', C_ACCENT), Spacer(1,3*mm)]
+    story.append(KeepTogether([section_header('Executive Summary', C_ACCENT), Spacer(1,3*mm)]))
     if is_wl:
         intro_text = f"This report has been prepared by {wl_name} for {d.get('business_name','the client')} covering the period {str(d.get('period','')).split('—')[0].strip()}. It is intended for internal management use only."
-        intro_parts += [Paragraph(intro_text, s('intro',fontSize=8.5,textColor=colors.HexColor('#6B7280'),leading=13,fontName=FONT_SANS)),Spacer(1,3*mm)]
+        story.append(Paragraph(intro_text, s('intro',fontSize=8.5,textColor=colors.HexColor('#6B7280'),leading=13,fontName=FONT_SANS)))
+        story.append(Spacer(1,2*mm))
     if is_comparison:
         try:
             cex = comparison_executive_box(d, C_ACCENT)
-            if cex: intro_parts += [cex, Spacer(1,4*mm)]
+            if cex: story.append(KeepTogether([cex, Spacer(1,3*mm)]))
         except Exception:
             pass
-    intro_parts += [Paragraph(str(d.get('executive_summary','No summary provided.')),ST_BODY),Spacer(1,4*mm)]
-    story.append(KeepTogether(intro_parts))
+    story.append(Paragraph(str(d.get('executive_summary','No summary provided.')),ST_BODY))
+    story.append(Spacer(1,3*mm))
 
     # ── KPI Cards ─────────────────────────────────────────────────────────────
     if is_comparison:
@@ -1854,8 +1866,9 @@ def build_report(d):
     kpi_row.setStyle(TableStyle([
         ('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),
         ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),
+        ('VALIGN',(0,0),(-1,-1),'TOP'),
     ]))
-    story.append(KeepTogether([kpi_row, Spacer(1,5*mm)]))
+    story.append(KeepTogether([kpi_row, Spacer(1,3*mm)]))
 
     # ── Period Comparison Summary (comparison reports only) ───────────────────
     if is_comparison:
@@ -1864,7 +1877,7 @@ def build_report(d):
             if csb:
                 story.append(KeepTogether([
                     section_header('Period Comparison Summary', C_ACCENT),
-                    Spacer(1,3*mm), csb, Spacer(1,5*mm),
+                    Spacer(1,3*mm), csb, Spacer(1,3*mm),
                 ]))
         except Exception:
             pass
@@ -1913,7 +1926,7 @@ def build_report(d):
         combined.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
         rev_section_els = [
             section_header('Revenue Performance & Margins', C_ACCENT),
-            Spacer(1,3*mm), combined, Spacer(1,5*mm),
+            Spacer(1,3*mm), combined, Spacer(1,3*mm),
         ]
         if is_comparison:
             try:
@@ -1921,7 +1934,7 @@ def build_report(d):
                 if mct:
                     rev_section_els += [
                         section_header('Margin Comparison', C_ACCENT),
-                        Spacer(1,3*mm), mct, Spacer(1,5*mm),
+                        Spacer(1,3*mm), mct, Spacer(1,3*mm),
                     ]
             except Exception:
                 pass
@@ -1973,7 +1986,7 @@ def build_report(d):
 
         if pie:
             combined_exp = Table([[cards_block, pie]], colWidths=[118*mm, 57*mm])
-            combined_exp.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'MIDDLE'),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
+            combined_exp.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
             content = combined_exp
         else:
             content = cards_block
@@ -1982,7 +1995,7 @@ def build_report(d):
             section_header('Operating Expense Breakdown', C_ACCENT),
             Spacer(1, 3*mm),
             content,
-            Spacer(1, 5*mm),
+            Spacer(1, 3*mm),
         ]))
 
     # ── P&L Table ─────────────────────────────────────────────────────────────
@@ -1992,7 +2005,7 @@ def build_report(d):
             story.append(comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, prev_revenue_items, prev_cogs_items, prev_opex_items, C_ACCENT))
         else:
             story.append(pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items))
-        story.append(Spacer(1,5*mm))
+        story.append(Spacer(1,3*mm))
 
         # Waterfall
         try:
@@ -2004,7 +2017,7 @@ def build_report(d):
                 story.append(section_header('P&L Waterfall', C_ACCENT))
                 story.append(Spacer(1,3*mm))
                 story.append(wf)
-                story.append(Spacer(1,5*mm))
+                story.append(Spacer(1,3*mm))
         except Exception:
             pass
 
@@ -2014,7 +2027,7 @@ def build_report(d):
             if tax_t:
                 story.append(KeepTogether([
                     section_header('Corporation Tax Estimate', C_ACCENT),
-                    Spacer(1,3*mm), tax_t, Spacer(1,5*mm),
+                    Spacer(1,3*mm), tax_t, Spacer(1,3*mm),
                 ]))
         except Exception:
             pass
@@ -2026,7 +2039,7 @@ def build_report(d):
             if cf:
                 story.append(KeepTogether([
                     section_header('Cash Flow Summary', C_ACCENT),
-                    Spacer(1,3*mm), cf, Spacer(1,5*mm),
+                    Spacer(1,3*mm), cf, Spacer(1,3*mm),
                 ]))
         except Exception:
             pass
@@ -2038,7 +2051,7 @@ def build_report(d):
             if bs:
                 story.append(KeepTogether([
                     section_header('Balance Sheet Snapshot', C_ACCENT),
-                    Spacer(1,3*mm), bs, Spacer(1,5*mm),
+                    Spacer(1,3*mm), bs, Spacer(1,3*mm),
                 ]))
         except Exception:
             pass
@@ -2050,7 +2063,7 @@ def build_report(d):
             if goals_t:
                 story.append(KeepTogether([
                     section_header('Goals & Targets', C_ACCENT),
-                    Spacer(1,3*mm), goals_t, Spacer(1,5*mm),
+                    Spacer(1,3*mm), goals_t, Spacer(1,3*mm),
                 ]))
         except Exception:
             pass
@@ -2059,7 +2072,7 @@ def build_report(d):
     if has_industry:
         story.append(KeepTogether([
             section_header('Industry Context', C_ACCENT), Spacer(1,3*mm),
-            Paragraph(industry_context, ST_BODY), Spacer(1,5*mm),
+            Paragraph(industry_context, ST_BODY), Spacer(1,3*mm),
         ]))
 
     # ── Key Trends ────────────────────────────────────────────────────────────
@@ -2067,7 +2080,7 @@ def build_report(d):
         story.append(KeepTogether([
             section_header('Key Trends & Analysis', C_ACCENT),Spacer(1,3*mm),
             Paragraph(str(d.get('analysis')),ST_BODY),
-            Spacer(1,5*mm),
+            Spacer(1,3*mm),
         ]))
 
     # ── Recommendations ───────────────────────────────────────────────────────
@@ -2078,7 +2091,7 @@ def build_report(d):
                 story.append(section_header('Recommendations', C_ACCENT))
                 story.append(Spacer(1,3*mm))
                 for el in rec_els: story.append(el)
-                story.append(Spacer(1,5*mm))
+                story.append(Spacer(1,3*mm))
         except Exception:
             pass
 
@@ -2090,7 +2103,7 @@ def build_report(d):
                 story.append(section_header('Forecast', C_ACCENT))
                 story.append(Spacer(1,3*mm))
                 for el in fc_els: story.append(el)
-                story.append(Spacer(1,5*mm))
+                story.append(Spacer(1,3*mm))
         except Exception:
             pass
 
@@ -2119,7 +2132,7 @@ def build_report(d):
             else:
                 severity='WATCH'; title='Flag'; body=fl.strip()
             story.append(KeepTogether([flag_card(i+1,title,body,severity),Spacer(1,2*mm)]))
-        story.append(Spacer(1,4*mm))
+        story.append(Spacer(1,3*mm))
 
     # ── Accountant's Notes ────────────────────────────────────────────────────
     if has_notes:
@@ -2128,7 +2141,7 @@ def build_report(d):
             if notes_el:
                 story.append(KeepTogether([
                     section_header("Accountant's Notes", C_ACCENT),
-                    Spacer(1,3*mm), notes_el, Spacer(1,5*mm),
+                    Spacer(1,3*mm), notes_el, Spacer(1,3*mm),
                 ]))
         except Exception:
             pass
@@ -2138,7 +2151,7 @@ def build_report(d):
         story.append(KeepTogether([
             section_header('Outlook', C_ACCENT),Spacer(1,3*mm),
             Paragraph(str(d.get('outlook')),ST_BODY),
-            Spacer(1,4*mm),
+            Spacer(1,3*mm),
         ]))
 
     # ── Glossary ──────────────────────────────────────────────────────────────
@@ -2154,10 +2167,9 @@ def build_report(d):
         if gloss:
             from reportlab.platypus import CondPageBreak
             story.append(CondPageBreak(60*mm))
-            story.append(KeepTogether([
-                section_header('Glossary of Financial Terms', C_ACCENT),
-                Spacer(1,3*mm), gloss, Spacer(1,5*mm),
-            ]))
+            story.append(KeepTogether([section_header('Glossary of Financial Terms', C_ACCENT), Spacer(1,3*mm)]))
+            story.append(gloss)
+            story.append(Spacer(1,3*mm))
     except Exception:
         pass
 
