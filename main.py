@@ -120,7 +120,9 @@ def get_list(d, key):
 
 def bar_chart(labels, values, w=100, h=44, show_trend=False):
     vals = [clean(v) or 0 for v in values]
-    maxv = max(vals + [1]) * 1.15
+    avg = sum(vals) / len(vals) if vals else 0
+    has_peak = avg > 0 and any(v > avg * 1.2 for v in vals)
+    maxv = max(vals + [1]) * (1.25 if has_peak else 1.15)
     dw = Drawing(w*mm, h*mm)
     n = max(len(vals), 1)
     avail = (w - 20) * mm
@@ -137,6 +139,9 @@ def bar_chart(labels, values, w=100, h=44, show_trend=False):
         dw.add(String(x+bw/2, base_y-7*mm, str(l)[:6], fontSize=6.5, fillColor=GRAY, textAnchor='middle'))
         lab = f'£{v/1000:.0f}k' if v >= 1000 else f'£{v:.0f}'
         dw.add(String(x+bw/2, base_y+max(bh,1)+1.5*mm, lab, fontSize=6.5, fillColor=NAVY, textAnchor='middle', fontName=FONT_SANS_BOLD))
+        if has_peak and avg > 0 and v > avg * 1.2:
+            dw.add(String(x+bw/2, base_y+max(bh,1)+5*mm, '★ Peak',
+                          fontSize=6, fillColor=GOLD, textAnchor='middle', fontName=FONT_SANS_BOLD))
     dw.add(Line(8*mm, base_y, w*mm-5*mm, base_y, strokeColor=BORDER, strokeWidth=0.5))
     if show_trend and len(vals) >= 2:
         try:
@@ -537,6 +542,25 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                 c.setFont(FONT_SANS, 9)
                 c.drawString(14*mm, bname_y - 23*mm, 'Currency: GBP (\xa3)')
 
+                # ── Period type badge ──────────────────────────────────────
+                period_lower = period.lower()
+                if 'q1' in period_lower or 'q2' in period_lower or 'q3' in period_lower or 'q4' in period_lower or 'quarter' in period_lower:
+                    badge_txt = 'QUARTERLY REPORT'
+                elif 'annual' in period_lower or 'year' in period_lower or ('fy' in period_lower and len(period_lower) < 10):
+                    badge_txt = 'ANNUAL REPORT'
+                elif 'month' in period_lower or any(m in period_lower for m in ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']):
+                    badge_txt = 'MONTHLY REPORT'
+                elif 'vs ' in period_lower or ' vs ' in period_lower or 'comparison' in period_lower:
+                    badge_txt = 'COMPARISON REPORT'
+                else:
+                    badge_txt = 'FINANCIAL REPORT'
+                badge_w = min(len(badge_txt) * 2 + 8, 46) * mm
+                c.setFillColor(GOLD)
+                c.roundRect(14*mm, bname_y - 34*mm, badge_w, 6*mm, 1.2*mm, fill=1, stroke=0)
+                c.setFillColor(NAVY)
+                c.setFont(FONT_SANS_BOLD, 5.5)
+                c.drawCentredString(14*mm + badge_w/2, bname_y - 34*mm + 2*mm, badge_txt)
+
                 # ── CONFIDENTIAL badge ─────────────────────────────────────
                 conf_y = ph*0.22
                 c.setFillColor(GOLD)
@@ -585,9 +609,10 @@ def toc_elements(sections, C_ACCENT):
 
 # ── Glossary ──────────────────────────────────────────────────────────────────
 
-def glossary_section(C_ACCENT):
+def glossary_section(C_ACCENT, active_terms=None):
     try:
-        terms = [
+        core_names = {'Revenue', 'Gross Profit', 'Gross Margin', 'Net Profit', 'Net Margin'}
+        all_terms = [
             ('Revenue', 'Total income from sales of goods or services before any costs are deducted.'),
             ('Cost of Goods Sold (COGS)', 'Direct costs tied to production — materials, direct labour, packaging.'),
             ('Gross Profit', 'Revenue minus COGS. Profitability before operating expenses.'),
@@ -600,6 +625,16 @@ def glossary_section(C_ACCENT):
             ('Period-over-Period', 'Comparison between two equivalent time periods (e.g. Q1 2024 vs Q1 2025).'),
             ('Corporation Tax', 'UK tax on company profits. Main rate 25%. Small profits rate 19% (profits under £50,000).'),
         ]
+        if active_terms is not None:
+            active_lower = {a.lower() for a in active_terms}
+            def _include(term_name):
+                if term_name in core_names:
+                    return True
+                tn = term_name.lower()
+                return any(key in tn or tn in key for key in active_lower)
+            terms = [(t, defn) for t, defn in all_terms if _include(t)]
+        else:
+            terms = all_terms
         rows = [[Paragraph('Term', ST_TH_L), Paragraph('Definition', ST_TH_L)]]
         for i, (term, defn) in enumerate(terms):
             rows.append([
@@ -992,17 +1027,18 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
         st=ST_BOLD if bold else (s('sub',fontSize=7.5,textColor=GRAY,leading=11) if sub else ST_TD_L)
         return Paragraph(p+str(txt),st)
     def cat(txt):
-        return [Paragraph(txt,s('cat',fontName=FONT_SANS_BOLD,fontSize=7.5,textColor=TEAL,leading=11))] + ['']*(ncols+1)
+        return [Paragraph(txt,s('cat',fontName=FONT_SANS_BOLD,fontSize=7.5,textColor=TEAL,leading=11))] + ['']*(ncols+2)
     def blank():
-        return [Paragraph(' ',s('sp',fontSize=2,leading=2))] + [' ']*(ncols+1)
+        return [Paragraph(' ',s('sp',fontSize=2,leading=2))] + [' ']*(ncols+2)
 
     hdr = [th('', False)]
     for p in periods: hdr.append(th(str(p)[:6]))
     hdr.append(th('Total'))
+    hdr.append(th('Avg'))
 
-    def item_row(item, bold=False, indent=True):
+    def item_row(item, bold=False, indent=True, lbl_override=None):
         vals = item.get('values', [])
-        row = [label(item.get('label','—'), indent=indent, bold=bold)]
+        row = [lbl_override if lbl_override is not None else label(item.get('label','—'), indent=indent, bold=bold)]
         for i in range(ncols):
             v = vals[i] if i < len(vals) else None
             if bold and not has_val(v):
@@ -1010,6 +1046,11 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
             else:
                 row.append(money(v, bold))
         row.append(money(item.get('total'), bold or True))
+        total_v = clean(item.get('total'))
+        if total_v is not None and ncols > 0:
+            row.append(money(total_v / ncols, bold))
+        else:
+            row.append(Paragraph('—', ST_BOLD_R if bold else ST_TD))
         return row
 
     rows = [hdr]
@@ -1042,7 +1083,7 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
         gp = {'label':'GROSS PROFIT','values':[d.get('gross_profit_'+k) for k in periods_keys] if show_periods else [],'total':d.get('gross_profit')}
         rows.append(item_row(gp, bold=True, indent=False)); teal_rows.append(len(rows)-1)
         if has_val(d.get('gross_margin')):
-            rows.append([label('Gross Margin %', sub=True)] + [td('—')]*ncols + [td(fmtp(d.get('gross_margin')))])
+            rows.append([label('Gross Margin %', sub=True)] + [td('—')]*ncols + [td(fmtp(d.get('gross_margin')))] + [td('—')])
         rows.append(blank())
 
     if opex_items or has_val(d.get('total_opex')):
@@ -1056,7 +1097,13 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
             sum(clean(it.get('values',[None]*99)[i]) or 0 for it in opex_items if i < len(it.get('values',[])))
             for i in range(ncols)
         ]
-        rows.append(item_row({'label':'Total Operating Expenses','values':opex_period_vals,'total':opex_total}, bold=True, indent=False))
+        opex_tv = clean(opex_total)
+        total_rv = clean(d.get('total_revenue'))
+        opex_pct_sub = ''
+        if opex_tv and total_rv and total_rv > 0:
+            opex_pct_sub = f'  <font name="{FONT_SANS}" size="6.5" color="#9CA3AF">{opex_tv/total_rv*100:.1f}% of rev</font>'
+        opex_lbl = Paragraph(f'Total Operating Expenses{opex_pct_sub}', ST_BOLD)
+        rows.append(item_row({'label':'Total Operating Expenses','values':opex_period_vals,'total':opex_total}, bold=True, indent=False, lbl_override=opex_lbl))
         teal_rows.append(len(rows)-1)
         rows.append(blank())
 
@@ -1065,9 +1112,9 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
     net_row_idx = len(rows)-1
     if has_val(d.get('net_margin')):
         nm_vals = [fmtp(d.get('net_margin_'+k)) for k in periods_keys] if show_periods else []
-        rows.append([label('Net Margin %', sub=True)] + [td(x) for x in nm_vals] + [td(fmtp(d.get('net_margin')))])
+        rows.append([label('Net Margin %', sub=True)] + [td(x) for x in nm_vals] + [td(fmtp(d.get('net_margin')))] + [td('—')])
 
-    colw = [60*mm] + [(115*mm)/(ncols+1)]*(ncols+1)
+    colw = [60*mm] + [(115*mm)/(ncols+2)]*(ncols+2)
     t = Table(rows, colWidths=colw, repeatRows=1)
     style = [
         ('BACKGROUND',(0,0),(-1,0),NAVY),
@@ -1822,16 +1869,72 @@ def build_report(d):
         except Exception:
             pass
 
+    # ── Health Score (gauge + narrative) ──────────────────────────────────────
+    if has_health:
+        try:
+            gauge = health_score_section(health_score, C_ACCENT)
+            hs_v = clean(health_score)
+            hs_parts = []
+            if hs_v is not None:
+                if hs_v >= 8:
+                    hs_parts.append(f"The business is in excellent financial health, scoring {hs_v:.0f}/10.")
+                elif hs_v >= 5:
+                    hs_parts.append(f"The business shows solid overall performance with a health score of {hs_v:.0f}/10.")
+                else:
+                    hs_parts.append(f"The business health score of {hs_v:.0f}/10 indicates areas requiring management attention.")
+            total_rv2 = clean(d.get('total_revenue'))
+            np_v2 = clean(d.get('net_profit'))
+            nm_v2 = clean(d.get('net_margin'))
+            gm_v2 = clean(d.get('gross_margin'))
+            if np_v2 is not None and total_rv2:
+                margin_note = f" ({fmtp(d.get('net_margin'))} net margin)" if nm_v2 is not None else ""
+                hs_parts.append(f"Net profit of {fmt(np_v2)} was achieved on revenue of {fmt(total_rv2)}{margin_note}.")
+            if gm_v2 is not None:
+                threshold_hi = 70 if gm_v2 > 1 else 0.7
+                threshold_lo = 40 if gm_v2 > 1 else 0.4
+                if gm_v2 > threshold_hi:
+                    hs_parts.append(f"Gross margin of {fmtp(d.get('gross_margin'))} reflects strong cost control and pricing power.")
+                elif gm_v2 > threshold_lo:
+                    hs_parts.append(f"Gross margin of {fmtp(d.get('gross_margin'))} is within a healthy operating range.")
+                else:
+                    hs_parts.append(f"Gross margin of {fmtp(d.get('gross_margin'))} leaves limited headroom above operating costs.")
+            hs_narrative = '  '.join(hs_parts[:3])
+            if gauge or hs_narrative:
+                hs_block = [section_header('Financial Health Score', C_ACCENT), Spacer(1,3*mm)]
+                if gauge:
+                    hs_block.append(gauge)
+                    hs_block.append(Spacer(1,2*mm))
+                if hs_narrative:
+                    hs_block.append(Paragraph(hs_narrative, ST_BODY))
+                hs_block.append(Spacer(1,5*mm))
+                story.append(KeepTogether(hs_block))
+        except Exception:
+            pass
+
     # ── Revenue Performance & Margins ─────────────────────────────────────────
     if periods and any(has_val(v) for v in period_rev):
         chart = bar_chart(periods, period_rev, show_trend=True)
+        nm_period = [(p, d.get('net_margin_'+k)) for p,k in zip(periods,periods_keys) if has_val(d.get('net_margin_'+k))]
+        nm_vals_clean = [clean(v) for _,v in nm_period if clean(v) is not None]
+        if len(nm_vals_clean) >= 2:
+            nm_diff = nm_vals_clean[-1] - nm_vals_clean[0]
+            if nm_diff > 0.5:
+                mt_txt = '▲ Margins improving'; mt_col = GREEN_TEXT
+            elif nm_diff < -0.5:
+                mt_txt = '▼ Margins declining'; mt_col = RED_TEXT
+            else:
+                mt_txt = '● Margins stable'; mt_col = GRAY
+            margin_trend_para = Paragraph(mt_txt, s('mtrend', fontSize=7, textColor=mt_col, leading=10))
+        else:
+            margin_trend_para = None
         margin_rows=[
             [Paragraph('Margin Analysis',s('ma',fontName=FONT_SANS_BOLD,fontSize=8,textColor=NAVY,leading=12))],
             [Spacer(1,2*mm)],
         ]
         if has_val(d.get('gross_margin')):
             margin_rows += [[Paragraph('Gross Margin',ST_SMALL)],[margin_bar(d.get('gross_margin'),'Average',TEAL)],[Spacer(1,1*mm)]]
-        nm_period = [(p, d.get('net_margin_'+k)) for p,k in zip(periods,periods_keys) if has_val(d.get('net_margin_'+k))]
+            if margin_trend_para:
+                margin_rows += [[margin_trend_para],[Spacer(1,1*mm)]]
         if nm_period:
             margin_rows += [[Paragraph('Net Margin by Period',ST_SMALL)]]
             palette=[RED_TEXT,GOLD,GREEN_TEXT,TEAL,colors.HexColor('#0B6E60'),NAVY]
@@ -2035,7 +2138,20 @@ def build_report(d):
 
     # ── Flags ─────────────────────────────────────────────────────────────────
     if flag_lines:
-        story.append(KeepTogether([section_header('Flags & Items to Watch', C_ACCENT),Spacer(1,3*mm)]))
+        pos_count   = sum(1 for fl in flag_lines if fl.split('|')[0].strip().upper() == 'POSITIVE')
+        watch_count = sum(1 for fl in flag_lines if fl.split('|')[0].strip().upper() in ('WATCH', 'INFO'))
+        risk_count  = sum(1 for fl in flag_lines if fl.split('|')[0].strip().upper() == 'RISK')
+        fsum_parts = []
+        if pos_count:   fsum_parts.append(f'<font color="#15803D"><b>{pos_count} positive</b></font>')
+        if watch_count: fsum_parts.append(f'<font color="#92400E"><b>{watch_count} watch</b></font>')
+        if risk_count:  fsum_parts.append(f'<font color="#B91C1C"><b>{risk_count} risk</b></font>')
+        fsum_para = Paragraph(' · '.join(fsum_parts), s('flagsum', fontSize=8, leading=12)) if fsum_parts else None
+        hdr_block = [section_header('Flags & Items to Watch', C_ACCENT), Spacer(1,2*mm)]
+        if fsum_para:
+            hdr_block += [fsum_para, Spacer(1,3*mm)]
+        else:
+            hdr_block.append(Spacer(1,3*mm))
+        story.append(KeepTogether(hdr_block))
         for i,fl in enumerate(flag_lines):
             parts = fl.split('|')
             if len(parts) >= 3:
@@ -2069,7 +2185,14 @@ def build_report(d):
 
     # ── Glossary ──────────────────────────────────────────────────────────────
     try:
-        gloss = glossary_section(C_ACCENT)
+        gloss_active = {'revenue', 'gross profit', 'gross margin', 'net profit', 'net margin'}
+        if has_val(d.get('total_cogs')) or cogs_items: gloss_active.update({'cogs', 'goods', 'sold'})
+        if has_val(d.get('total_opex')) or opex_items: gloss_active.update({'opex', 'operating', 'expenses'})
+        if is_comparison: gloss_active.update({'period', 'period-over-period'})
+        if has_balsheet: gloss_active.update({'working', 'capital'})
+        if has_val(d.get('net_profit')) and (clean(d.get('net_profit')) or 0) > 0: gloss_active.update({'corporation', 'tax'})
+        if has_val(d.get('ebitda')): gloss_active.add('ebitda')
+        gloss = glossary_section(C_ACCENT, active_terms=gloss_active)
         if gloss:
             from reportlab.platypus import CondPageBreak
             story.append(CondPageBreak(60*mm))
@@ -2086,15 +2209,16 @@ def build_report(d):
     if wl_disclaimer and wl_disclaimer.upper() not in ('NA','N/A','NONE',''):
         disclaimer_row = [Paragraph(wl_disclaimer,s('disc',fontSize=7,textColor=colors.HexColor('#9CA3AF'),alignment=TA_CENTER,leading=10))]
     period_short = str(d.get('period','')).split('—')[0].strip()
+    gen_date = datetime.datetime.now().strftime('%d %b %Y')
     if is_wl and contact_str:
         line1 = f"Prepared by {prepared_by}{contact_str}"
-        line2 = f"{period_short} &nbsp;·&nbsp; Ref: {report_ref} &nbsp;·&nbsp; Confidential"
+        line2 = f"{period_short} &nbsp;·&nbsp; Ref: {report_ref} &nbsp;·&nbsp; Generated {gen_date} &nbsp;·&nbsp; Confidential"
         main_footer = [
             Paragraph(line1,s('ftxt',fontSize=6,textColor=colors.HexColor('#6B7280'),alignment=TA_CENTER,leading=9)),
             Paragraph(line2,s('ftxt2',fontSize=6,textColor=colors.HexColor('#6B7280'),alignment=TA_CENTER,leading=9)),
         ]
     else:
-        main_footer = [Paragraph(f"Prepared by {prepared_by} &nbsp;·&nbsp; {period_short} &nbsp;·&nbsp; Ref: {report_ref} &nbsp;·&nbsp; Confidential",s('ftxt',fontSize=6,textColor=colors.HexColor('#6B7280'),alignment=TA_CENTER,leading=9))]
+        main_footer = [Paragraph(f"Prepared by {prepared_by} &nbsp;·&nbsp; {period_short} &nbsp;·&nbsp; Ref: {report_ref} &nbsp;·&nbsp; Generated {gen_date} &nbsp;·&nbsp; Confidential",s('ftxt',fontSize=6,textColor=colors.HexColor('#6B7280'),alignment=TA_CENTER,leading=9))]
     ft_rows = []
     if disclaimer_row:
         for item in disclaimer_row: ft_rows.append([item])
