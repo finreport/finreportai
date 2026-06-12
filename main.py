@@ -1116,31 +1116,72 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
     ncols = len(periods)
     prev_period_label = str(d.get('previous_period','Prev'))[:8]
 
-    def get_prev_total(items_list, label_text):
+    def get_prev_item(items_list, label_text):
         for it in items_list:
             if it.get('label','').lower() == label_text.lower():
-                return it.get('total')
+                return it
         return None
+
+    def get_prev_total(items_list, label_text):
+        it = get_prev_item(items_list, label_text)
+        return it.get('total') if it else None
 
     hdr = [th('',False)]
     for p in periods: hdr.append(th(p[:3]))
     hdr += [th('Current'), th(prev_period_label), th('Chg %')]
 
+    gray_s    = s('rem_lbl', fontName=FONT_SANS, fontSize=8,
+                  textColor=colors.HexColor('#9CA3AF'), leading=11)
+    gray_v    = s('rem_val', fontName=FONT_SANS, fontSize=8,
+                  textColor=colors.HexColor('#9CA3AF'), leading=11, alignment=TA_RIGHT)
+    removed_s = s('rem_chg', fontName=FONT_SANS_BOLD, fontSize=7.5,
+                  textColor=RED_TEXT, alignment=TA_RIGHT, leading=11)
+    new_s     = s('new_tag', fontName=FONT_SANS_BOLD, fontSize=7,
+                  textColor=GREEN_TEXT, leading=11)
+
     def item_row(item, prev_items, bold=False, indent=True):
         vals = item.get('values',[])
-        row = [label(item.get('label','—'),indent=indent,bold=bold)]
+        lbl_txt = item.get('label','—')
+        prev_it = get_prev_item(prev_items, lbl_txt)
+        is_new  = not bold and prev_it is None
+
+        # Build label cell — append ★ New badge for new items
+        p_prefix = '    ' if indent else ''
+        if is_new:
+            lbl_cell = Paragraph(
+                p_prefix + lbl_txt + '  <font size="7" color="#15803D">&#9733; New</font>',
+                ST_BOLD if bold else ST_TD_L,
+            )
+        else:
+            lbl_cell = label(lbl_txt, indent=indent, bold=bold)
+
+        row = [lbl_cell]
         for i in range(ncols):
             v = vals[i] if i<len(vals) else None
             if bold and not has_val(v):
-                row.append(Paragraph('—',ST_BOLD_R if bold else ST_TD))
+                row.append(Paragraph('—', ST_BOLD_R if bold else ST_TD))
             else:
-                row.append(money(v,bold))
+                row.append(money(v, bold))
         curr_total = item.get('total')
-        prev_total = get_prev_total(prev_items, item.get('label',''))
-        row.append(money(curr_total,bold))
-        row.append(money(prev_total,bold))
-        row.append(pct_change(curr_total,prev_total,bold))
+        prev_total = prev_it.get('total') if prev_it else None
+        row.append(money(curr_total, bold))
+        row.append(money(prev_total, bold))
+        row.append(pct_change(curr_total, prev_total, bold))
         return row
+
+    def removed_rows(curr_items, prev_items):
+        """Rows for items in previous period but absent from current."""
+        result = []
+        for pit in prev_items:
+            if not any(ci.get('label','').lower() == pit.get('label','').lower()
+                       for ci in curr_items):
+                row = [Paragraph('    ' + pit.get('label','') + ' (Removed)', gray_s)]
+                for _ in range(ncols): row.append(Paragraph('—', gray_v))
+                row.append(Paragraph('—', gray_v))
+                row.append(Paragraph(fmt(pit.get('total')) if has_val(pit.get('total')) else '—', gray_v))
+                row.append(Paragraph('▼ Removed', removed_s))
+                result.append(row)
+        return result
 
     rows = [hdr]
     teal_rows=[]
@@ -1148,6 +1189,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
     if revenue_items:
         rows.append(cat('REVENUE'))
         for it in revenue_items: rows.append(item_row(it,prev_revenue_items))
+        for rr in removed_rows(revenue_items, prev_revenue_items): rows.append(rr)
         tr_curr=d.get('total_revenue'); tr_prev=d.get('prev_total_revenue')
         tr_row=[label('Total Revenue',bold=True)]
         for k in periods_keys: tr_row.append(money(d.get('revenue_'+k),True))
@@ -1158,6 +1200,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
     if cogs_items or has_val(d.get('total_cogs')):
         rows.append(cat('COST OF GOODS SOLD'))
         for it in cogs_items: rows.append(item_row(it,prev_cogs_items))
+        for rr in removed_rows(cogs_items, prev_cogs_items): rows.append(rr)
         tc_curr=d.get('total_cogs'); tc_prev=d.get('prev_total_cogs')
         rows.append([label('Total COGS',bold=True)]+['—']*ncols+[money(tc_curr,True),money(tc_prev,True),pct_change(tc_curr,tc_prev,True)])
         teal_rows.append(len(rows)-1)
@@ -1174,6 +1217,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
     if opex_items or has_val(d.get('total_opex')):
         rows.append(cat('OPERATING EXPENSES'))
         for it in opex_items: rows.append(item_row(it,prev_opex_items))
+        for rr in removed_rows(opex_items, prev_opex_items): rows.append(rr)
         to_curr=d.get('total_opex'); to_prev=d.get('prev_total_opex')
         rows.append([label('Total OpEx',bold=True)]+['—']*ncols+[money(to_curr,True),money(to_prev,True),pct_change(to_curr,to_prev,True)])
         teal_rows.append(len(rows)-1)
@@ -1204,6 +1248,330 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
     for ti in teal_rows: style_cmds.append(('BACKGROUND',(0,ti),(-1,ti),TEAL_LITE))
     t.setStyle(TableStyle(style_cmds))
     return t
+
+# ── Comparison-only helpers ───────────────────────────────────────────────────
+
+def comparison_executive_box(d, C_ACCENT):
+    """Styled analyst paragraph for comparison executive summary."""
+    try:
+        curr_rev = clean(d.get('total_revenue'))
+        prev_rev = clean(d.get('prev_total_revenue'))
+        curr_np  = clean(d.get('net_profit'))
+        prev_np  = clean(d.get('prev_net_profit'))
+        curr_gm  = clean(d.get('gross_margin'))
+        prev_gm  = clean(d.get('prev_gross_margin'))
+        curr_nm  = clean(d.get('net_margin'))
+        prev_nm  = clean(d.get('prev_net_margin'))
+        period   = str(d.get('period', 'current period'))
+        prev_per = str(d.get('previous_period', 'prior period'))
+
+        parts = []
+        metrics_up = 0; metrics_down = 0
+
+        if curr_rev and prev_rev and prev_rev != 0:
+            chg = ((curr_rev - prev_rev) / abs(prev_rev)) * 100
+            word = 'increased' if chg >= 0 else 'decreased'
+            parts.append(
+                f"Revenue {word} {abs(chg):.1f}% from {fmt(prev_rev)} ({prev_per}) "
+                f"to {fmt(curr_rev)} ({period})."
+            )
+            metrics_up += (1 if chg >= 0 else 0); metrics_down += (0 if chg >= 0 else 1)
+
+        if curr_np is not None and prev_np is not None and prev_np != 0:
+            chg = ((curr_np - prev_np) / abs(prev_np)) * 100
+            word = 'improved' if chg >= 0 else 'declined'
+            parts.append(f"Net profit {word} {abs(chg):.1f}% from {fmt(prev_np)} to {fmt(curr_np)}.")
+            metrics_up += (1 if chg >= 0 else 0); metrics_down += (0 if chg >= 0 else 1)
+
+        if curr_gm is not None and prev_gm is not None:
+            chg = curr_gm - prev_gm
+            if abs(chg) >= 0.5:
+                word = 'expanded' if chg > 0 else 'contracted'
+                parts.append(
+                    f"Gross margin {word} by {abs(chg):.1f}pp from {fmtp(prev_gm)} to {fmtp(curr_gm)}."
+                )
+            else:
+                parts.append(f"Gross margin held steady at {fmtp(curr_gm)} (prior: {fmtp(prev_gm)}).")
+            metrics_up += (1 if chg >= 0 else 0); metrics_down += (0 if chg >= 0 else 1)
+
+        if curr_nm is not None and prev_nm is not None:
+            chg = curr_nm - prev_nm
+            if abs(chg) >= 0.5:
+                word = 'improved' if chg > 0 else 'compressed'
+                parts.append(f"Net margin {word} from {fmtp(prev_nm)} to {fmtp(curr_nm)}.")
+            else:
+                parts.append(f"Net margin stable at {fmtp(curr_nm)}.")
+            metrics_up += (1 if chg >= 0 else 0); metrics_down += (0 if chg >= 0 else 1)
+
+        if metrics_down == 0 and metrics_up > 0:
+            verdict = "Overall verdict: performance improved across all tracked metrics."
+        elif metrics_up > metrics_down:
+            verdict = "Overall verdict: positive period — the majority of key metrics improved."
+        elif metrics_down > metrics_up:
+            verdict = "Overall verdict: performance declined across most key metrics; management review recommended."
+        else:
+            verdict = "Overall verdict: mixed performance — gains in some areas offset by weakness in others."
+        parts.append(verdict)
+
+        if not parts: return None
+        text = '  '.join(parts)
+        inner_s = s('cexec_inner', fontName=FONT_SANS, fontSize=8.5,
+                    textColor=colors.HexColor('#1A3A2A'), leading=14)
+        t = Table([[Paragraph(text, inner_s)]], colWidths=[175*mm])
+        t.setStyle(TableStyle([
+            ('BOX',         (0,0),(-1,-1), 1,   C_ACCENT),
+            ('LINEBEFORE',  (0,0),(0,-1),  4,   C_ACCENT),
+            ('BACKGROUND',  (0,0),(-1,-1),      TEAL_LITE),
+            ('TOPPADDING',  (0,0),(-1,-1), 8),
+            ('BOTTOMPADDING',(0,0),(-1,-1),8),
+            ('LEFTPADDING', (0,0),(-1,-1), 10),
+            ('RIGHTPADDING',(0,0),(-1,-1), 8),
+        ]))
+        return t
+    except Exception:
+        return None
+
+
+def comparison_summary_box(d, C_ACCENT):
+    """Side-by-side period comparison summary table (after KPI cards)."""
+    try:
+        period_curr = str(d.get('period', 'Current'))[:14]
+        period_prev = str(d.get('previous_period', 'Previous'))[:14]
+
+        def prev_cell(v, is_pct=False, bold=False):
+            fn = FONT_SANS_BOLD if bold else FONT_SANS
+            disp = (fmtp if is_pct else fmt)(v) if has_val(v) else '—'
+            return Paragraph(disp, s(f'csbp_{id(v)}', fontName=fn, fontSize=8,
+                                     textColor=DARK, leading=12, alignment=TA_RIGHT))
+
+        def curr_cell(curr_v, prev_v, is_pct=False, bold=False):
+            cv = clean(curr_v); pv = clean(prev_v)
+            fn = FONT_SANS_BOLD if bold else FONT_SANS
+            disp = (fmtp if is_pct else fmt)(cv) if cv is not None else '—'
+            if cv is not None and pv is not None and pv != 0:
+                chg = ((cv - pv) / abs(pv)) * 100
+                arrow = '▲' if chg >= 0 else '▼'
+                col = GREEN_TEXT if chg >= 0 else RED_TEXT
+                disp = f"{disp}  {arrow}{abs(chg):.1f}%"
+            else:
+                col = DARK
+            return Paragraph(disp, s(f'csbc_{id(curr_v)}', fontName=fn, fontSize=8,
+                                     textColor=col, leading=12, alignment=TA_RIGHT))
+
+        hdr = [
+            Paragraph('Metric', ST_TH_L),
+            Paragraph(period_prev, ST_TH),
+            Paragraph(f'{period_curr}  (change)', ST_TH),
+        ]
+
+        def mrow(metric, prev_v, curr_v, is_pct=False, bold=False):
+            fn = FONT_SANS_BOLD if bold else FONT_SANS
+            tc = NAVY if bold else DARK
+            return [
+                Paragraph(metric, s(f'csml_{metric[:10]}', fontName=fn, fontSize=8,
+                                    textColor=tc, leading=12)),
+                prev_cell(prev_v, is_pct, bold),
+                curr_cell(curr_v, prev_v, is_pct, bold),
+            ]
+
+        rows = [hdr,
+            mrow('Total Revenue',  d.get('prev_total_revenue'), d.get('total_revenue'),  bold=True),
+            mrow('Gross Profit',   d.get('prev_gross_profit'),  d.get('gross_profit'),   bold=True),
+            mrow('Gross Margin %', d.get('prev_gross_margin'),  d.get('gross_margin'),   is_pct=True),
+            mrow('Net Profit',     d.get('prev_net_profit'),    d.get('net_profit'),     bold=True),
+            mrow('Net Margin %',   d.get('prev_net_margin'),    d.get('net_margin'),     is_pct=True),
+            mrow('Total OpEx',     d.get('prev_total_opex'),    d.get('total_opex')),
+        ]
+
+        t = Table(rows, colWidths=[55*mm, 55*mm, 65*mm], repeatRows=1)
+        t.setStyle(TableStyle([
+            ('BACKGROUND',    (0,0),(-1,0),  NAVY),
+            ('ROWBACKGROUNDS',(0,1),(-1,-1), [WHITE, OFFWHITE]),
+            ('TOPPADDING',    (0,0),(-1,-1), 5),
+            ('BOTTOMPADDING', (0,0),(-1,-1), 5),
+            ('LEFTPADDING',   (0,0),(-1,-1), 8),
+            ('RIGHTPADDING',  (0,0),(-1,-1), 8),
+            ('VALIGN',        (0,0),(-1,-1), 'MIDDLE'),
+            ('LINEBELOW',     (0,0),(-1,0),  1, C_ACCENT),
+        ]))
+        return t
+    except Exception:
+        return None
+
+
+def margin_comparison_table(d, C_ACCENT):
+    """Margin metrics: Metric | Previous | Current | Change | Trend."""
+    try:
+        curr_gm   = clean(d.get('gross_margin'))
+        prev_gm   = clean(d.get('prev_gross_margin'))
+        curr_nm   = clean(d.get('net_margin'))
+        prev_nm   = clean(d.get('prev_net_margin'))
+        curr_rev  = clean(d.get('total_revenue'))
+        prev_rev  = clean(d.get('prev_total_revenue'))
+        curr_cogs = clean(d.get('total_cogs'))
+        prev_cogs = clean(d.get('prev_total_cogs'))
+        curr_opex = clean(d.get('total_opex'))
+        prev_opex = clean(d.get('prev_total_opex'))
+
+        curr_cogs_pct = (curr_cogs/curr_rev*100) if curr_cogs and curr_rev and curr_rev>0 else None
+        prev_cogs_pct = (prev_cogs/prev_rev*100) if prev_cogs and prev_rev and prev_rev>0 else None
+        curr_opex_pct = (curr_opex/curr_rev*100) if curr_opex and curr_rev and curr_rev>0 else None
+        prev_opex_pct = (prev_opex/prev_rev*100) if prev_opex and prev_rev and prev_rev>0 else None
+
+        def chg_cells(curr_v, prev_v, lower_is_better=False):
+            if curr_v is None or prev_v is None:
+                return Paragraph('—', ST_TD), Paragraph('—', ST_TD)
+            chg = curr_v - prev_v
+            improved = (chg < 0) if lower_is_better else (chg >= 0)
+            col = GREEN_TEXT if improved else RED_TEXT
+            arrow = '▲' if chg >= 0 else '▼'
+            chg_s  = s(f'mct_{id(curr_v)}', fontName=FONT_SANS_BOLD, fontSize=8,
+                       textColor=col, alignment=TA_RIGHT, leading=11)
+            trend_s = s(f'mcd_{id(curr_v)}', fontName=FONT_SANS_BOLD, fontSize=10,
+                        textColor=col, alignment=TA_CENTER, leading=12)
+            return (Paragraph(f"{arrow} {abs(chg):.1f}pp", chg_s),
+                    Paragraph(arrow, trend_s))
+
+        hdr = [Paragraph('Metric', ST_TH_L), Paragraph('Previous', ST_TH),
+               Paragraph('Current', ST_TH), Paragraph('Change', ST_TH), Paragraph('Trend', ST_TH)]
+
+        def mrow(lbl, prev_v, curr_v, lib=False):
+            cp, tp = chg_cells(curr_v, prev_v, lib)
+            return [Paragraph(lbl, ST_TD_L),
+                    Paragraph(fmtp(prev_v) if prev_v is not None else '—', ST_TD),
+                    Paragraph(fmtp(curr_v) if curr_v is not None else '—', ST_TD),
+                    cp, tp]
+
+        rows = [hdr]
+        if curr_gm is not None or prev_gm is not None:
+            rows.append(mrow('Gross Margin %', prev_gm, curr_gm))
+        if curr_nm is not None or prev_nm is not None:
+            rows.append(mrow('Net Margin %', prev_nm, curr_nm))
+        if curr_cogs_pct is not None or prev_cogs_pct is not None:
+            rows.append(mrow('COGS as % of Revenue', prev_cogs_pct, curr_cogs_pct, lib=True))
+        if curr_opex_pct is not None or prev_opex_pct is not None:
+            rows.append(mrow('OpEx as % of Revenue', prev_opex_pct, curr_opex_pct, lib=True))
+        if len(rows) <= 1: return None
+
+        t = Table(rows, colWidths=[65*mm, 28*mm, 28*mm, 32*mm, 22*mm], repeatRows=1)
+        t.setStyle(TableStyle([
+            ('BACKGROUND',    (0,0),(-1,0),  NAVY),
+            ('ROWBACKGROUNDS',(0,1),(-1,-1), [WHITE, OFFWHITE]),
+            ('TOPPADDING',    (0,0),(-1,-1), 5),
+            ('BOTTOMPADDING', (0,0),(-1,-1), 5),
+            ('LEFTPADDING',   (0,0),(-1,-1), 8),
+            ('RIGHTPADDING',  (0,0),(-1,-1), 8),
+            ('VALIGN',        (0,0),(-1,-1), 'MIDDLE'),
+            ('LINEBELOW',     (0,0),(-1,0),  1, C_ACCENT),
+        ]))
+        return t
+    except Exception:
+        return None
+
+
+def single_waterfall(rev_v, cogs_v, opex_v, net_v, w=82, h=85, muted=False, title=''):
+    """Compact single-period waterfall chart."""
+    try:
+        rev = clean(rev_v)
+        if not rev or rev <= 0: return None
+        cogs  = clean(cogs_v)  or 0
+        opex  = clean(opex_v)  or 0
+        np_v2 = clean(net_v)
+        gross = rev - cogs
+        net   = np_v2 if np_v2 is not None else (gross - opex)
+
+        ct = colors.HexColor('#8CB8B3') if muted else TEAL
+        cr = colors.HexColor('#E8A0A0') if muted else RED_TEXT
+        cn = colors.HexColor('#8B97AA') if muted else NAVY
+        ca = colors.HexColor('#E8C97A') if muted else colors.HexColor('#D97706')
+        cf = colors.HexColor('#B8A0A0') if muted else colors.HexColor('#6B2D2D')
+        lc = colors.HexColor('#5B6B7A') if muted else NAVY
+
+        dw = Drawing(w*mm, h*mm)
+        base_y  = 14*mm
+        chart_h = (h - 28)*mm
+
+        def ht(val): return (max(val, 0) / rev) * chart_h if rev > 0 else 0
+
+        avail = (w - 6)*mm
+        bw    = min(22*mm, avail / 3.6)
+        gap   = (avail - bw * 3) / 2
+        def bx(i): return 3*mm + i*(bw + gap)
+
+        def smart_lbl(x, y_bot, bar_h, text):
+            if bar_h > 6*mm:
+                dw.add(String(x+bw/2, y_bot+bar_h/2-1*mm, text,
+                              fontSize=5.5, fillColor=WHITE, textAnchor='middle', fontName=FONT_SANS_BOLD))
+            elif bar_h > 0.5:
+                dw.add(String(x+bw/2, y_bot+bar_h+1.5*mm, text,
+                              fontSize=5.5, fillColor=lc, textAnchor='middle', fontName=FONT_SANS_BOLD))
+
+        def ax_lbl(x, text):
+            dw.add(String(x+bw/2, base_y-9*mm, text,
+                          fontSize=6, fillColor=GRAY, textAnchor='middle', fontName=FONT_SANS_BOLD))
+
+        full_h = ht(rev); gp_h = ht(gross); cogs_h = ht(cogs)
+        net_h  = ht(max(net, 0)); opex_h = ht(opex)
+        pad_h  = max(full_h - net_h - opex_h, 0)
+
+        dw.add(Rect(bx(0), base_y, bw, full_h, fillColor=ct, strokeColor=None))
+        smart_lbl(bx(0), base_y, full_h, f'£{rev/1000:.0f}k')
+        ax_lbl(bx(0), 'Revenue')
+
+        dw.add(Rect(bx(1), base_y,       bw, gp_h,   fillColor=ct, strokeColor=None))
+        dw.add(Rect(bx(1), base_y+gp_h,  bw, cogs_h, fillColor=cr, strokeColor=None))
+        smart_lbl(bx(1), base_y,      gp_h,   f'GP £{gross/1000:.0f}k')
+        smart_lbl(bx(1), base_y+gp_h, cogs_h, 'COGS')
+        ax_lbl(bx(1), 'Gross Profit')
+
+        dw.add(Rect(bx(2), base_y,           bw, net_h,  fillColor=cn, strokeColor=None))
+        dw.add(Rect(bx(2), base_y+net_h,     bw, opex_h, fillColor=ca, strokeColor=None))
+        if pad_h > 0:
+            dw.add(Rect(bx(2), base_y+net_h+opex_h, bw, pad_h, fillColor=cf, strokeColor=None))
+        smart_lbl(bx(2), base_y,       net_h,  f'NP £{net/1000:.0f}k')
+        smart_lbl(bx(2), base_y+net_h, opex_h, 'OpEx')
+        ax_lbl(bx(2), 'Net Profit')
+
+        dw.add(Line(1*mm, base_y, (w-1)*mm, base_y, strokeColor=BORDER, strokeWidth=0.5))
+
+        if title:
+            dw.add(String(w/2*mm, (h-5)*mm, title[:16],
+                          fontSize=7, fillColor=lc, textAnchor='middle', fontName=FONT_SANS_BOLD))
+        return dw
+    except Exception:
+        return None
+
+
+def dual_waterfall_chart(d, C_ACCENT):
+    """Two compact waterfalls side by side: previous (muted) left, current right."""
+    try:
+        prev_wf = single_waterfall(
+            d.get('prev_total_revenue'), d.get('prev_total_cogs'),
+            d.get('prev_total_opex'),    d.get('prev_net_profit'),
+            w=82, h=85, muted=True,
+            title=str(d.get('previous_period','Previous'))[:16],
+        )
+        curr_wf = single_waterfall(
+            d.get('total_revenue'), d.get('total_cogs'),
+            d.get('total_opex'),    d.get('net_profit'),
+            w=82, h=85, muted=False,
+            title=str(d.get('period','Current'))[:16],
+        )
+        if prev_wf is None and curr_wf is None: return None
+        if prev_wf is None: return curr_wf
+        if curr_wf is None: return prev_wf
+        t = Table([[prev_wf, curr_wf]], colWidths=[86*mm, 89*mm])
+        t.setStyle(TableStyle([
+            ('VALIGN',       (0,0),(-1,-1),'TOP'),
+            ('LEFTPADDING',  (0,0),(-1,-1),0),
+            ('RIGHTPADDING', (0,0),(-1,-1),0),
+            ('TOPPADDING',   (0,0),(-1,-1),0),
+            ('BOTTOMPADDING',(0,0),(-1,-1),0),
+        ]))
+        return t
+    except Exception:
+        return None
+
 
 # ── Build report ──────────────────────────────────────────────────────────────
 
@@ -1400,6 +1768,12 @@ def build_report(d):
     if is_wl:
         intro_text = f"This report has been prepared by {wl_name} for {d.get('business_name','the client')} covering the period {str(d.get('period','')).split('—')[0].strip()}. It is intended for internal management use only."
         intro_parts += [Paragraph(intro_text, s('intro',fontSize=8.5,textColor=colors.HexColor('#6B7280'),leading=13,fontName=FONT_SANS)),Spacer(1,3*mm)]
+    if is_comparison:
+        try:
+            cex = comparison_executive_box(d, C_ACCENT)
+            if cex: intro_parts += [cex, Spacer(1,4*mm)]
+        except Exception:
+            pass
     intro_parts += [Paragraph(str(d.get('executive_summary','No summary provided.')),ST_BODY),Spacer(1,4*mm)]
     story.append(KeepTogether(intro_parts))
 
@@ -1436,6 +1810,18 @@ def build_report(d):
     ]))
     story.append(KeepTogether([kpi_row, Spacer(1,5*mm)]))
 
+    # ── Period Comparison Summary (comparison reports only) ───────────────────
+    if is_comparison:
+        try:
+            csb = comparison_summary_box(d, C_ACCENT)
+            if csb:
+                story.append(KeepTogether([
+                    section_header('Period Comparison Summary', C_ACCENT),
+                    Spacer(1,3*mm), csb, Spacer(1,5*mm),
+                ]))
+        except Exception:
+            pass
+
     # ── Revenue Performance & Margins ─────────────────────────────────────────
     if periods and any(has_val(v) for v in period_rev):
         chart = bar_chart(periods, period_rev, show_trend=True)
@@ -1464,10 +1850,22 @@ def build_report(d):
         m_t.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
         combined=Table([[chart,m_t]],colWidths=[100*mm,75*mm])
         combined.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
-        story.append(KeepTogether([
+        rev_section_els = [
             section_header('Revenue Performance & Margins', C_ACCENT),
             Spacer(1,3*mm), combined, Spacer(1,5*mm),
-        ]))
+        ]
+        if is_comparison:
+            try:
+                mct = margin_comparison_table(d, C_ACCENT)
+                if mct:
+                    rev_section_els += [
+                        section_header('Margin Comparison', C_ACCENT),
+                        Spacer(1,3*mm), mct, Spacer(1,5*mm),
+                    ]
+            except Exception:
+                pass
+        story.append(KeepTogether(rev_section_els[:4]))  # keep first block together
+        for el in rev_section_els[4:]: story.append(el)
 
     # ── Expense Breakdown + Pie chart ─────────────────────────────────────────
     if opex_with_totals:
@@ -1537,7 +1935,10 @@ def build_report(d):
 
         # Waterfall
         try:
-            wf = waterfall_chart(d.get('total_revenue'), d.get('total_cogs'), d.get('total_opex'), d.get('net_profit'))
+            if is_comparison:
+                wf = dual_waterfall_chart(d, C_ACCENT)
+            else:
+                wf = waterfall_chart(d.get('total_revenue'), d.get('total_cogs'), d.get('total_opex'), d.get('net_profit'))
             if wf:
                 story.append(section_header('P&L Waterfall', C_ACCENT))
                 story.append(Spacer(1,3*mm))
