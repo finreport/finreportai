@@ -1869,48 +1869,6 @@ def build_report(d):
         except Exception:
             pass
 
-    # ── Health Score (gauge + narrative) ──────────────────────────────────────
-    if has_health:
-        try:
-            gauge = health_score_section(health_score, C_ACCENT)
-            hs_v = clean(health_score)
-            hs_parts = []
-            if hs_v is not None:
-                if hs_v >= 8:
-                    hs_parts.append(f"The business is in excellent financial health, scoring {hs_v:.0f}/10.")
-                elif hs_v >= 5:
-                    hs_parts.append(f"The business shows solid overall performance with a health score of {hs_v:.0f}/10.")
-                else:
-                    hs_parts.append(f"The business health score of {hs_v:.0f}/10 indicates areas requiring management attention.")
-            total_rv2 = clean(d.get('total_revenue'))
-            np_v2 = clean(d.get('net_profit'))
-            nm_v2 = clean(d.get('net_margin'))
-            gm_v2 = clean(d.get('gross_margin'))
-            if np_v2 is not None and total_rv2:
-                margin_note = f" ({fmtp(d.get('net_margin'))} net margin)" if nm_v2 is not None else ""
-                hs_parts.append(f"Net profit of {fmt(np_v2)} was achieved on revenue of {fmt(total_rv2)}{margin_note}.")
-            if gm_v2 is not None:
-                threshold_hi = 70 if gm_v2 > 1 else 0.7
-                threshold_lo = 40 if gm_v2 > 1 else 0.4
-                if gm_v2 > threshold_hi:
-                    hs_parts.append(f"Gross margin of {fmtp(d.get('gross_margin'))} reflects strong cost control and pricing power.")
-                elif gm_v2 > threshold_lo:
-                    hs_parts.append(f"Gross margin of {fmtp(d.get('gross_margin'))} is within a healthy operating range.")
-                else:
-                    hs_parts.append(f"Gross margin of {fmtp(d.get('gross_margin'))} leaves limited headroom above operating costs.")
-            hs_narrative = '  '.join(hs_parts[:3])
-            if gauge or hs_narrative:
-                hs_block = [section_header('Financial Health Score', C_ACCENT), Spacer(1,3*mm)]
-                if gauge:
-                    hs_block.append(gauge)
-                    hs_block.append(Spacer(1,2*mm))
-                if hs_narrative:
-                    hs_block.append(Paragraph(hs_narrative, ST_BODY))
-                hs_block.append(Spacer(1,5*mm))
-                story.append(KeepTogether(hs_block))
-        except Exception:
-            pass
-
     # ── Revenue Performance & Margins ─────────────────────────────────────────
     if periods and any(has_val(v) for v in period_rev):
         chart = bar_chart(periods, period_rev, show_trend=True)
