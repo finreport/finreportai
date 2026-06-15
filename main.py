@@ -118,7 +118,7 @@ def get_list(d, key):
 
 # ── Chart helpers ────────────────────────────────────────────────────────────
 
-def bar_chart(labels, values, w=100, h=50, show_trend=False):
+def bar_chart(labels, values, w=100, h=50, show_trend=False, C_ACCENT=None):
     vals = [clean(v) or 0 for v in values]
     avg = sum(vals) / len(vals) if vals else 0
     has_peak = avg > 0 and any(v > avg * 1.2 for v in vals)
@@ -129,8 +129,23 @@ def bar_chart(labels, values, w=100, h=50, show_trend=False):
     bw = min(14*mm, avail / (n*1.8))
     gap = (avail - bw*n) / max(n, 1)
     base_y = 10*mm; chart_h = (h-16)*mm
-    palette = [TEAL, colors.HexColor('#0B6E60'), colors.HexColor('#084F45'),
-               colors.HexColor('#0A8A78'), colors.HexColor('#063D35'), colors.HexColor('#0D9E89')]
+    if C_ACCENT is not None:
+        try:
+            r, g, b = C_ACCENT.red, C_ACCENT.green, C_ACCENT.blue
+            palette = [
+                C_ACCENT,
+                colors.Color(max(r*0.78,0), max(g*0.78,0), max(b*0.78,0)),
+                colors.Color(max(r*0.60,0), max(g*0.60,0), max(b*0.60,0)),
+                colors.Color(max(r*0.90,0), max(g*0.90,0), max(b*0.90,0)),
+                colors.Color(max(r*0.48,0), max(g*0.48,0), max(b*0.48,0)),
+                colors.Color(max(r*0.70,0), max(g*0.70,0), max(b*0.70,0)),
+            ]
+        except Exception:
+            palette = [TEAL, colors.HexColor('#0B6E60'), colors.HexColor('#084F45'),
+                       colors.HexColor('#0A8A78'), colors.HexColor('#063D35'), colors.HexColor('#0D9E89')]
+    else:
+        palette = [TEAL, colors.HexColor('#0B6E60'), colors.HexColor('#084F45'),
+                   colors.HexColor('#0A8A78'), colors.HexColor('#063D35'), colors.HexColor('#0D9E89')]
     for i,(v,l) in enumerate(zip(vals, labels)):
         c = palette[i % len(palette)]
         x = 10*mm + i*(bw+gap)
@@ -525,23 +540,26 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                 c.setFont(FONT_SANS_BOLD, 6.5)
                 c.drawCentredString(14*mm + 21*mm, pill_y + 2.5*mm, 'FINANCIAL REPORT')
 
-                # ── Business name ──────────────────────────────────────────
-                bname_y = ph*0.485
+                # ── "PREPARED FOR" label + Business name ──────────────────
+                bname_y = ph*0.478
+                c.setFillColor(GOLD)
+                c.setFont(FONT_SANS_BOLD, 6.5)
+                c.drawString(14*mm, bname_y + 14*mm, 'PREPARED FOR')
                 c.setFillColor(WHITE)
-                c.setFont(FONT_SERIF_BOLD, 26)
+                c.setFont(FONT_SERIF_BOLD, 28)
                 c.drawString(14*mm, bname_y, bname)
 
                 # Gold rule under business name
                 c.setFillColor(GOLD)
                 c.rect(14*mm, bname_y - 5*mm, 22*mm, 2.5, fill=1, stroke=0)
 
-                # ── Period & currency ──────────────────────────────────────
+                # ── Period (more prominent) & currency ────────────────────
                 c.setFillColor(colors.HexColor('#9BB5D4'))
-                c.setFont(FONT_SERIF_IT, 12)
-                c.drawString(14*mm, bname_y - 14*mm, period)
+                c.setFont(FONT_SERIF_IT, 14)
+                c.drawString(14*mm, bname_y - 17*mm, period)
                 c.setFillColor(colors.HexColor('#5B7A9A'))
-                c.setFont(FONT_SANS, 9)
-                c.drawString(14*mm, bname_y - 23*mm, 'Currency: GBP (\xa3)')
+                c.setFont(FONT_SANS, 8)
+                c.drawString(14*mm, bname_y - 27*mm, 'Currency: GBP (\xa3)')
 
                 # ── Period type badge ──────────────────────────────────────
                 period_lower = period.lower()
@@ -557,10 +575,10 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                     badge_txt = 'FINANCIAL REPORT'
                 badge_w = min(len(badge_txt) * 2 + 8, 46) * mm
                 c.setFillColor(GOLD)
-                c.roundRect(14*mm, bname_y - 34*mm, badge_w, 6*mm, 1.2*mm, fill=1, stroke=0)
+                c.roundRect(14*mm, bname_y - 38*mm, badge_w, 6*mm, 1.2*mm, fill=1, stroke=0)
                 c.setFillColor(NAVY)
                 c.setFont(FONT_SANS_BOLD, 5.5)
-                c.drawCentredString(14*mm + badge_w/2, bname_y - 34*mm + 2*mm, badge_txt)
+                c.drawCentredString(14*mm + badge_w/2, bname_y - 38*mm + 2*mm, badge_txt)
 
                 # ── CONFIDENTIAL badge ─────────────────────────────────────
                 conf_y = ph*0.22
@@ -742,6 +760,248 @@ def health_score_section(score, C_ACCENT):
         return dw
     except Exception:
         return None
+
+# ── Traffic light dashboard ───────────────────────────────────────────────────
+
+def traffic_light_dashboard(d, C_ACCENT, period_revs=None):
+    """3-column grid of RAG metric indicators."""
+    try:
+        def tl_card(name, value_str, status, color):
+            name_s = s(f'tln{name}', fontSize=7, textColor=GRAY, leading=10)
+            val_s  = s(f'tlv{name}', fontName=FONT_SANS_BOLD, fontSize=10, textColor=DARK, leading=13, alignment=TA_CENTER)
+            st_s   = s(f'tls{name}', fontName=FONT_SANS_BOLD, fontSize=7, textColor=color, leading=10, alignment=TA_CENTER)
+            cw = 175*mm / 3
+            t = Table([
+                [Paragraph(name, name_s)],
+                [Paragraph(value_str, val_s)],
+                [Paragraph(f'● {status}', st_s)],
+            ], colWidths=[cw])
+            t.setStyle(TableStyle([
+                ('BOX',          (0,0),(-1,-1), 0.5,  BORDER),
+                ('BACKGROUND',   (0,0),(-1,-1), OFFWHITE),
+                ('LINEABOVE',    (0,0),(-1,0),  2,    color),
+                ('TOPPADDING',   (0,0),(-1,-1), 5),
+                ('BOTTOMPADDING',(0,0),(-1,-1), 5),
+                ('LEFTPADDING',  (0,0),(-1,-1), 6),
+                ('RIGHTPADDING', (0,0),(-1,-1), 6),
+            ]))
+            return t
+
+        cards = []
+
+        # Revenue Trend
+        if period_revs:
+            pr = [clean(v) for v in period_revs if clean(v) is not None]
+            if len(pr) >= 2 and pr[0]:
+                pct = (pr[-1] - pr[0]) / abs(pr[0]) * 100
+                if pct >= 5:
+                    cards.append(tl_card('Revenue Trend', f'▲ {abs(pct):.1f}%', 'Growing', GREEN_TEXT))
+                elif pct <= -5:
+                    cards.append(tl_card('Revenue Trend', f'▼ {abs(pct):.1f}%', 'Declining', RED_TEXT))
+                else:
+                    cards.append(tl_card('Revenue Trend', f'≈ {pct:+.1f}%', 'Stable', AMBER_TEXT))
+
+        # Gross Margin vs 60% benchmark
+        gm = clean(d.get('gross_margin'))
+        if gm is not None:
+            gm100 = gm if gm > 1 else gm * 100
+            if gm100 >= 60:
+                cards.append(tl_card('Gross Margin', fmtp(gm), 'Strong', GREEN_TEXT))
+            elif gm100 >= 40:
+                cards.append(tl_card('Gross Margin', fmtp(gm), 'Moderate', AMBER_TEXT))
+            else:
+                cards.append(tl_card('Gross Margin', fmtp(gm), 'Low', RED_TEXT))
+
+        # Net Margin vs 10% benchmark
+        nm = clean(d.get('net_margin'))
+        if nm is not None:
+            nm100 = nm if nm > 1 else nm * 100
+            if nm100 >= 10:
+                cards.append(tl_card('Net Margin', fmtp(nm), 'Healthy', GREEN_TEXT))
+            elif nm100 >= 5:
+                cards.append(tl_card('Net Margin', fmtp(nm), 'Watch', AMBER_TEXT))
+            else:
+                cards.append(tl_card('Net Margin', fmtp(nm), 'Low', RED_TEXT))
+
+        # OpEx Control vs 40% of revenue
+        opex_v = clean(d.get('total_opex'))
+        rev_v  = clean(d.get('total_revenue'))
+        if opex_v is not None and rev_v and rev_v > 0:
+            op_pct = opex_v / rev_v * 100
+            if op_pct <= 40:
+                cards.append(tl_card('OpEx Control', f'{op_pct:.1f}% of rev', 'Controlled', GREEN_TEXT))
+            elif op_pct <= 55:
+                cards.append(tl_card('OpEx Control', f'{op_pct:.1f}% of rev', 'Watch', AMBER_TEXT))
+            else:
+                cards.append(tl_card('OpEx Control', f'{op_pct:.1f}% of rev', 'High', RED_TEXT))
+
+        # Cash Position
+        cash_op = clean(d.get('cash_operating'))
+        if cash_op is not None:
+            if cash_op >= 0:
+                cards.append(tl_card('Cash (Operating)', fmt(cash_op), 'Positive', GREEN_TEXT))
+            else:
+                cards.append(tl_card('Cash (Operating)', fmt(cash_op), 'Negative', RED_TEXT))
+
+        # Health Score
+        hs = clean(d.get('health_score'))
+        if hs is not None:
+            hs = max(1, min(10, hs))
+            if hs >= 8:
+                cards.append(tl_card('Health Score', f'{hs:.0f}/10', 'Excellent', GREEN_TEXT))
+            elif hs >= 5:
+                cards.append(tl_card('Health Score', f'{hs:.0f}/10', 'Good', AMBER_TEXT))
+            else:
+                cards.append(tl_card('Health Score', f'{hs:.0f}/10', 'Review', RED_TEXT))
+
+        if not cards:
+            return None
+
+        # Pad to multiple of 3 with empty spacers
+        cw = 175*mm / 3
+        while len(cards) % 3 != 0:
+            cards.append(Spacer(cw, 1))
+
+        rows = [cards[i:i+3] for i in range(0, len(cards), 3)]
+        grid = Table(rows, colWidths=[cw] * 3)
+        grid.setStyle(TableStyle([
+            ('LEFTPADDING',  (0,0),(-1,-1), 2),
+            ('RIGHTPADDING', (0,0),(-1,-1), 2),
+            ('TOPPADDING',   (0,0),(-1,-1), 2),
+            ('BOTTOMPADDING',(0,0),(-1,-1), 2),
+            ('VALIGN',       (0,0),(-1,-1), 'TOP'),
+        ]))
+        return grid
+    except Exception:
+        return None
+
+
+# ── Management summary box ────────────────────────────────────────────────────
+
+def management_summary_box(d, C_ACCENT):
+    """KEY TAKEAWAYS box with first 3 recommendations as bullets."""
+    try:
+        recs = d.get('recommendations')
+        if not recs:
+            return None
+        if isinstance(recs, str):
+            try:
+                recs = json.loads(recs)
+            except Exception:
+                recs = [r.strip() for r in recs.split('|') if r.strip()]
+        if not recs or not isinstance(recs, list):
+            return None
+        bullets = []
+        for rec in recs[:3]:
+            text = str(rec).strip()
+            for sep in ['. ', '! ', '? ']:
+                idx = text.find(sep)
+                if 0 < idx < len(text) - 1:
+                    text = text[:idx + 1]
+                    break
+            if text:
+                bullets.append(text)
+        if not bullets:
+            return None
+        hdr_s = s('msh', fontName=FONT_SANS_BOLD, fontSize=8, textColor=WHITE, leading=11)
+        bul_s = s('msb', fontName=FONT_SANS, fontSize=8.5, textColor=DARK, leading=13)
+        rows = [[Paragraph('KEY TAKEAWAYS', hdr_s)]]
+        for b in bullets:
+            rows.append([Paragraph(f'→  {b}', bul_s)])
+        t = Table(rows, colWidths=[175*mm])
+        style = [
+            ('BACKGROUND',    (0,0),(-1,0),  NAVY),
+            ('BACKGROUND',    (0,1),(-1,-1), OFFWHITE),
+            ('BOX',           (0,0),(-1,-1), 0.75, C_ACCENT),
+            ('LINEBEFORE',    (0,0),(0,-1),  3,    C_ACCENT),
+            ('TOPPADDING',    (0,0),(-1,-1), 6),
+            ('BOTTOMPADDING', (0,0),(-1,-1), 6),
+            ('LEFTPADDING',   (0,0),(-1,0),  8),
+            ('LEFTPADDING',   (0,1),(-1,-1), 12),
+            ('RIGHTPADDING',  (0,0),(-1,-1), 8),
+        ]
+        for r in range(1, len(rows) - 1):
+            style.append(('LINEBELOW', (0,r),(-1,r), 0.3, BORDER))
+        t.setStyle(TableStyle(style))
+        return t
+    except Exception:
+        return None
+
+
+# ── Since last period banner ──────────────────────────────────────────────────
+
+def since_last_period_banner(d, C_ACCENT):
+    """Slim navy banner showing 3 headline changes vs previous period."""
+    try:
+        def compute(curr, prev, is_pct=False):
+            cv, pv = clean(curr), clean(prev)
+            if cv is None or pv is None:
+                return None, GRAY
+            if is_pct:
+                cv2 = cv if cv > 1 else cv * 100
+                pv2 = pv if pv > 1 else pv * 100
+                diff = cv2 - pv2
+                arrow = '▲' if diff >= 0 else '▼'
+                col = GREEN_TEXT if diff >= 0 else RED_TEXT
+                return f'{arrow} {abs(diff):.1f}pp', col
+            else:
+                if pv == 0:
+                    return None, GRAY
+                pct = (cv - pv) / abs(pv) * 100
+                arrow = '▲' if pct >= 0 else '▼'
+                col = GREEN_TEXT if pct >= 0 else RED_TEXT
+                return f'{arrow} {abs(pct):.1f}%', col
+
+        rev_str, rev_col = compute(d.get('total_revenue'), d.get('prev_total_revenue'))
+        np_str,  np_col  = compute(d.get('net_profit'),    d.get('prev_net_profit'))
+        gm_str,  gm_col  = compute(d.get('gross_margin'),  d.get('prev_gross_margin'), is_pct=True)
+
+        if not any([rev_str, np_str, gm_str]):
+            return None
+
+        lbl_s = s('slbl', fontSize=6.5, textColor=colors.HexColor('#9BB5D4'), leading=9, alignment=TA_CENTER)
+        cw = 175*mm / 3
+
+        def metric_cell(label, val_str, col):
+            vs = val_str or '—'
+            val_s = s(f'sv{label}', fontName=FONT_SANS_BOLD, fontSize=12, textColor=col, leading=15, alignment=TA_CENTER)
+            ct = Table([[Paragraph(label, lbl_s)], [Paragraph(vs, val_s)]], colWidths=[cw])
+            ct.setStyle(TableStyle([
+                ('TOPPADDING',   (0,0),(-1,-1), 5),
+                ('BOTTOMPADDING',(0,0),(-1,-1), 5),
+                ('LEFTPADDING',  (0,0),(-1,-1), 2),
+                ('RIGHTPADDING', (0,0),(-1,-1), 2),
+            ]))
+            return ct
+
+        cells = [
+            metric_cell('Revenue',      rev_str, rev_col),
+            metric_cell('Net Profit',   np_str,  np_col),
+            metric_cell('Gross Margin', gm_str,  gm_col),
+        ]
+        hdr_s = s('slhdr', fontName=FONT_SANS_BOLD, fontSize=6.5,
+                  textColor=colors.HexColor('#9BB5D4'), leading=9)
+        banner = Table(
+            [[Paragraph('SINCE LAST PERIOD', hdr_s), '', ''], cells],
+            colWidths=[cw] * 3,
+        )
+        banner.setStyle(TableStyle([
+            ('BACKGROUND',   (0,0),(-1,-1), NAVY),
+            ('SPAN',         (0,0),(-1,0)),
+            ('TOPPADDING',   (0,0),(-1,0),  5),
+            ('BOTTOMPADDING',(0,0),(-1,0),  3),
+            ('LEFTPADDING',  (0,0),(-1,0),  8),
+            ('RIGHTPADDING', (0,0),(-1,0),  8),
+            ('TOPPADDING',   (0,1),(-1,1),  0),
+            ('BOTTOMPADDING',(0,1),(-1,1),  0),
+            ('LEFTPADDING',  (0,1),(-1,1),  0),
+            ('RIGHTPADDING', (0,1),(-1,1),  0),
+            ('LINEAFTER',    (0,1),(1,1),   0.3, colors.HexColor('#2D4A7A')),
+        ]))
+        return banner
+    except Exception:
+        return None
+
 
 # ── Recommendations section ───────────────────────────────────────────────────
 
@@ -1667,7 +1927,7 @@ def build_report(d):
     download_name = f"{firm_safe}_{bname}_{period_safe}.pdf" if is_wl else f"FinReportAI_{bname}_{period_safe}.pdf"
     d['_download_name'] = download_name
 
-    doc=SimpleDocTemplate(buf,pagesize=A4,leftMargin=17*mm,rightMargin=17*mm,topMargin=0,bottomMargin=12*mm)
+    doc=SimpleDocTemplate(buf,pagesize=A4,leftMargin=17*mm,rightMargin=17*mm,topMargin=11*mm,bottomMargin=14*mm)
 
     periods_raw = d.get('periods','')
     if isinstance(periods_raw, list):
@@ -1805,21 +2065,8 @@ def build_report(d):
     except Exception:
         pass
 
-    # ── Slim page header (replaces the old full-width navy banner) ────────────
-    slim_hdr = Table([[
-        Paragraph(str(d.get('business_name', '')),
-            s('sh', fontName=FONT_SANS_BOLD, fontSize=9, textColor=WHITE, leading=13)),
-        Paragraph(f"{d.get('period', '')}  ·  {prepared_by}",
-            s('shr', fontSize=8, textColor=colors.HexColor('#9BB5D4'), leading=11, alignment=TA_RIGHT)),
-    ]], colWidths=[90*mm, 85*mm])
-    slim_hdr.setStyle(TableStyle([
-        ('BACKGROUND',(0,0),(-1,-1),C_PRIMARY),
-        ('TOPPADDING',(0,0),(-1,-1),6),('BOTTOMPADDING',(0,0),(-1,-1),6),
-        ('LEFTPADDING',(0,0),(-1,-1),8),('RIGHTPADDING',(0,0),(-1,-1),8),
-        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-    ]))
-    story.append(slim_hdr)
-    story.append(Spacer(1,3*mm))
+    # The per-page header is drawn by PageNumCanvas on pages 2+ via canvas overlay.
+    story.append(Spacer(1,2*mm))
 
     # ── Executive Summary ─────────────────────────────────────────────────────
     story.append(KeepTogether([section_header('Executive Summary', C_ACCENT), Spacer(1,3*mm)]))
@@ -1870,6 +2117,34 @@ def build_report(d):
     ]))
     story.append(KeepTogether([kpi_row, Spacer(1,3*mm)]))
 
+    # ── Traffic Light Dashboard ───────────────────────────────────────────────
+    try:
+        tld = traffic_light_dashboard(d, C_ACCENT, period_revs=period_rev)
+        if tld:
+            story.append(KeepTogether([
+                section_header('At a Glance', C_ACCENT),
+                Spacer(1,3*mm), tld, Spacer(1,3*mm),
+            ]))
+    except Exception:
+        pass
+
+    # ── Management Summary Box ────────────────────────────────────────────────
+    try:
+        msb = management_summary_box(d, C_ACCENT)
+        if msb:
+            story.append(KeepTogether([msb, Spacer(1,3*mm)]))
+    except Exception:
+        pass
+
+    # ── Since Last Period Banner (comparison only) ────────────────────────────
+    if is_comparison:
+        try:
+            slp = since_last_period_banner(d, C_ACCENT)
+            if slp:
+                story.append(KeepTogether([slp, Spacer(1,3*mm)]))
+        except Exception:
+            pass
+
     # ── Period Comparison Summary (comparison reports only) ───────────────────
     if is_comparison:
         try:
@@ -1884,7 +2159,7 @@ def build_report(d):
 
     # ── Revenue Performance & Margins ─────────────────────────────────────────
     if periods and any(has_val(v) for v in period_rev):
-        chart = bar_chart(periods, period_rev, show_trend=True)
+        chart = bar_chart(periods, period_rev, show_trend=True, C_ACCENT=C_ACCENT)
         nm_period = [(p, d.get('net_margin_'+k)) for p,k in zip(periods,periods_keys) if has_val(d.get('net_margin_'+k))]
         nm_vals_clean = [clean(v) for _,v in nm_period if clean(v) is not None]
         if len(nm_vals_clean) >= 2:
@@ -2194,8 +2469,12 @@ def build_report(d):
         for item in disclaimer_row: ft_rows.append([item])
     for item in main_footer: ft_rows.append([item])
     ft=Table(ft_rows,colWidths=[175*mm])
-    ft.setStyle(TableStyle([('LINEABOVE',(0,0),(-1,0),0.5,BORDER),('TOPPADDING',(0,0),(-1,-1),5),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
+    ft.setStyle(TableStyle([('LINEABOVE',(0,0),(-1,0),0.5,BORDER),('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),4),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]))
     story.append(ft)
+
+    _canvas_bname    = str(d.get('business_name', ''))
+    _canvas_period   = str(d.get('period', ''))
+    _canvas_prep_by  = prepared_by
 
     class PageNumCanvas(rl_canvas.Canvas):
         def __init__(self, *args, **kwargs):
@@ -2217,6 +2496,34 @@ def build_report(d):
                 rl_canvas.Canvas.showPage(self)
             rl_canvas.Canvas.save(self)
         def draw_page_number(self, page_count):
+            if self._pageNumber > 1:
+                # ── Slim header bar ───────────────────────────────────────
+                self.saveState()
+                self.setFillColor(C_PRIMARY)
+                self.rect(0, A4[1] - 8*mm, A4[0], 8*mm, fill=1, stroke=0)
+                self.setFillColor(WHITE)
+                self.setFont(FONT_SANS_BOLD, 7)
+                self.drawString(17*mm, A4[1] - 5.2*mm, _canvas_bname)
+                self.setFont(FONT_SANS, 7)
+                self.setFillColor(colors.HexColor('#9BB5D4'))
+                self.drawRightString(A4[0] - 17*mm, A4[1] - 5.2*mm,
+                                     f'{_canvas_period}  \xb7  {_canvas_prep_by}')
+                self.restoreState()
+                # ── Diagonal watermark ─────────────────────────────────
+                self.saveState()
+                self.setFillColor(colors.Color(15/255, 31/255, 61/255, 0.04))
+                self.translate(A4[0] / 2, A4[1] / 2)
+                self.rotate(45)
+                self.setFont(FONT_SERIF_BOLD, 80)
+                self.drawCentredString(0, 0, 'CONFIDENTIAL')
+                self.restoreState()
+            # ── Footer rule ───────────────────────────────────────────
+            self.saveState()
+            self.setStrokeColor(BORDER)
+            self.setLineWidth(0.3)
+            self.line(0, 14*mm, A4[0], 14*mm)
+            self.restoreState()
+            # ── Page number ───────────────────────────────────────────
             self.setFont(FONT_SANS, 7)
             self.setFillColor(colors.HexColor('#6B7280'))
             self.drawCentredString(A4[0]/2, 5*mm, f'Page {self._pageNumber} of {page_count}')
