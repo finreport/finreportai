@@ -1080,7 +1080,7 @@ def forecast_section(d, C_ACCENT):
 
 # ── Cash flow section ─────────────────────────────────────────────────────────
 
-def cash_flow_section(d, C_ACCENT):
+def cash_flow_section(d, C_ACCENT, ncols=1):
     """Simple 3-line cash flow summary: operating, investing, financing."""
     try:
         op  = clean(d.get('cash_operating'))
@@ -1125,15 +1125,45 @@ def cash_flow_section(d, C_ACCENT):
         ]
         rows.append(net_row)
 
+        # Cash runway estimate
+        if op is not None and op > 0:
+            try:
+                assets_v = clean(d.get('total_assets'))
+                opex_v   = clean(d.get('total_opex'))
+                n = max(ncols, 1)
+                if opex_v and opex_v > 0 and assets_v and assets_v > 0:
+                    monthly_burn = opex_v / n
+                    runway = assets_v / monthly_burn
+                    if runway > 6:
+                        rw_col, rw_str = GREEN_TEXT, f'{runway:.0f} months'
+                    elif runway >= 3:
+                        rw_col, rw_str = AMBER_TEXT, f'{runway:.0f} months'
+                    else:
+                        rw_col, rw_str = RED_TEXT, f'{runway:.1f} months'
+                else:
+                    rw_col, rw_str = GRAY, 'Insufficient data'
+            except Exception:
+                rw_col, rw_str = GRAY, 'Insufficient data'
+            rows.append([
+                Paragraph('Estimated Cash Runway',
+                          s('cfrl', fontName=FONT_SANS, fontSize=8, textColor=GRAY, leading=12)),
+                Paragraph(rw_str,
+                          s('cfrv', fontName=FONT_SANS_BOLD, fontSize=8,
+                            textColor=rw_col, leading=12, alignment=TA_RIGHT)),
+            ])
+
         t = Table(rows, colWidths=[130*mm, 45*mm], repeatRows=1)
+        n_data_rows = len(rows) - 1
         t.setStyle(TableStyle([
-            ('BACKGROUND',(0,0),(-1,0),NAVY),
-            ('ROWBACKGROUNDS',(0,1),(-1,-2),[WHITE,OFFWHITE]),
-            ('BACKGROUND',(0,-1),(-1,-1),TEAL_LITE),
-            ('LINEABOVE',(0,-1),(-1,-1),1.5,NAVY),
-            ('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5),
-            ('LEFTPADDING',(0,0),(-1,-1),8),('RIGHTPADDING',(0,0),(-1,-1),8),
-            ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+            ('BACKGROUND',   (0,0), (-1,0),  NAVY),
+            ('ROWBACKGROUNDS',(0,1),(-1,n_data_rows),[WHITE,OFFWHITE]),
+            ('BACKGROUND',   (0,-1),(-1,-1), TEAL_LITE),
+            ('LINEABOVE',    (0,-1),(-1,-1), 1.5, NAVY),
+            ('TOPPADDING',   (0,0), (-1,-1), 5),
+            ('BOTTOMPADDING',(0,0), (-1,-1), 5),
+            ('LEFTPADDING',  (0,0), (-1,-1), 8),
+            ('RIGHTPADDING', (0,0), (-1,-1), 8),
+            ('VALIGN',       (0,0), (-1,-1), 'MIDDLE'),
         ]))
         return t
     except Exception:
@@ -1276,9 +1306,171 @@ def accountant_notes_element(notes, C_ACCENT):
     except Exception:
         return None
 
+# ── Questions to discuss ──────────────────────────────────────────────────────
+
+def questions_section(d, C_ACCENT):
+    """Teal-bordered box with 3 discussion questions."""
+    try:
+        dq = d.get('discussion_questions')
+        if dq:
+            if isinstance(dq, str):
+                try: dq = json.loads(dq)
+                except Exception: dq = [q.strip() for q in dq.split('|') if q.strip()]
+        if not dq or not isinstance(dq, list) or not any(str(q).strip() for q in dq):
+            # Auto-generate from available data
+            dq = []
+            nm = clean(d.get('net_margin'))
+            if nm is not None and (nm if nm > 1 else nm * 100) < 15:
+                dq.append('What specific cost reduction opportunities are available to improve net margin?')
+            raw_flags = str(d.get('flags', ''))
+            risk_count = sum(1 for f in raw_flags.replace('FLAGSEP', '\n').split('\n')
+                             if '|' in f and f.split('|')[0].strip().upper() == 'RISK')
+            if risk_count > 0:
+                dq.append('What immediate actions are planned to address the risk items identified in this report?')
+            opex_v = clean(d.get('total_opex'))
+            rev_v  = clean(d.get('total_revenue'))
+            if opex_v and rev_v and rev_v > 0 and opex_v / rev_v > 0.5:
+                dq.append('How can operating expenses be optimised relative to revenue over the next period?')
+            if not dq:
+                dq = [
+                    'What are the key priorities for the next financial period?',
+                    'Are there any upcoming capital expenditure plans that may impact cash flow?',
+                    'Are there opportunities to improve gross margin through pricing or cost management?',
+                ]
+        dq = [str(q).strip() for q in dq if str(q).strip()][:3]
+        if not dq:
+            return None
+        hdr_s = s('qhdr', fontName=FONT_SANS_BOLD, fontSize=8, textColor=WHITE, leading=11)
+        q_s   = s('qbody', fontName=FONT_SANS, fontSize=8.5, textColor=DARK, leading=13)
+        rows  = [[Paragraph('QUESTIONS TO DISCUSS', hdr_s)]]
+        for i, q in enumerate(dq, 1):
+            rows.append([Paragraph(f'{i}.  {q}', q_s)])
+        t = Table(rows, colWidths=[175*mm])
+        style = [
+            ('BACKGROUND',   (0,0),(-1,0),  C_ACCENT),
+            ('BACKGROUND',   (0,1),(-1,-1), TEAL_LITE),
+            ('BOX',          (0,0),(-1,-1), 0.75, C_ACCENT),
+            ('TOPPADDING',   (0,0),(-1,-1), 7),
+            ('BOTTOMPADDING',(0,0),(-1,-1), 7),
+            ('LEFTPADDING',  (0,0),(-1,0),  8),
+            ('LEFTPADDING',  (0,1),(-1,-1), 12),
+            ('RIGHTPADDING', (0,0),(-1,-1), 8),
+        ]
+        for r in range(1, len(rows) - 1):
+            style.append(('LINEBELOW', (0,r), (-1,r), 0.3, C_ACCENT))
+        t.setStyle(TableStyle(style))
+        return t
+    except Exception:
+        return None
+
+
+# ── Key wins section ──────────────────────────────────────────────────────────
+
+def key_wins_section(flag_lines, C_ACCENT):
+    """Green-accented box listing POSITIVE flags as wins."""
+    try:
+        wins = []
+        for fl in flag_lines:
+            parts = fl.split('|')
+            if len(parts) >= 3 and parts[0].strip().upper() == 'POSITIVE':
+                wins.append({'title': parts[1].strip(), 'body': parts[2].strip()})
+        if not wins:
+            return None
+        hdr_s = s('kwh', fontName=FONT_SANS_BOLD, fontSize=8, textColor=WHITE, leading=11)
+        win_s = s('kwb', fontName=FONT_SANS, fontSize=8.5, textColor=DARK, leading=13)
+        rows  = [[Paragraph('KEY WINS THIS PERIOD', hdr_s)]]
+        for w in wins:
+            rows.append([Paragraph(f'✓  <b>{w["title"]}</b>  — {w["body"]}', win_s)])
+        t = Table(rows, colWidths=[175*mm])
+        style = [
+            ('BACKGROUND',   (0,0),(-1,0),  GREEN_TEXT),
+            ('BACKGROUND',   (0,1),(-1,-1), GREEN_SOFT),
+            ('BOX',          (0,0),(-1,-1), 0.75, GREEN_TEXT),
+            ('TOPPADDING',   (0,0),(-1,-1), 6),
+            ('BOTTOMPADDING',(0,0),(-1,-1), 6),
+            ('LEFTPADDING',  (0,0),(-1,0),  8),
+            ('LEFTPADDING',  (0,1),(-1,-1), 12),
+            ('RIGHTPADDING', (0,0),(-1,-1), 8),
+        ]
+        for r in range(1, len(rows) - 1):
+            style.append(('LINEBELOW', (0,r), (-1,r), 0.3, GREEN_TEXT))
+        t.setStyle(TableStyle(style))
+        return t
+    except Exception:
+        return None
+
+
+# ── Break-even calculator ─────────────────────────────────────────────────────
+
+def breakeven_section(d, C_ACCENT):
+    """3-row break-even table: fixed costs, gross margin, break-even revenue."""
+    try:
+        opex_v = clean(d.get('total_opex'))
+        gm_v   = clean(d.get('gross_margin'))
+        if opex_v is None or gm_v is None or opex_v <= 0:
+            return None
+        gm_dec = gm_v / 100 if gm_v > 1 else gm_v
+        if gm_dec <= 0:
+            return None
+        be_rev = opex_v / gm_dec
+        be_bold_s = s('beb', fontName=FONT_SANS_BOLD, fontSize=8, textColor=NAVY, leading=11)
+        be_boldr_s = s('bebr', fontName=FONT_SANS_BOLD, fontSize=8, textColor=NAVY, leading=11, alignment=TA_RIGHT)
+        note_s = s('ben', fontSize=7.5, textColor=GRAY, leading=11)
+        rows = [
+            [Paragraph('Item', ST_TH_L), Paragraph('Value', ST_TH)],
+            [Paragraph('Fixed Operating Costs', ST_TD_L), Paragraph(fmt(opex_v), ST_TD)],
+            [Paragraph('Gross Margin', ST_TD_L), Paragraph(fmtp(gm_v), ST_TD)],
+            [Paragraph('Break-Even Revenue Required', be_bold_s), Paragraph(fmt(be_rev), be_boldr_s)],
+            [Paragraph(f'Revenue above {fmt(be_rev)} generates profit.', note_s), ''],
+        ]
+        t = Table(rows, colWidths=[130*mm, 45*mm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND',    (0,0), (-1,0),  NAVY),
+            ('ROWBACKGROUNDS',(0,1), (-1,2),  [WHITE, OFFWHITE]),
+            ('BACKGROUND',    (0,3), (-1,3),  TEAL_LITE),
+            ('LINEABOVE',     (0,3), (-1,3),  1.5, NAVY),
+            ('BACKGROUND',    (0,4), (-1,4),  OFFWHITE),
+            ('SPAN',          (0,4), (-1,4)),
+            ('TOPPADDING',    (0,0), (-1,-1), 5),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+            ('LEFTPADDING',   (0,0), (-1,-1), 8),
+            ('RIGHTPADDING',  (0,0), (-1,-1), 8),
+            ('VALIGN',        (0,0), (-1,-1), 'MIDDLE'),
+            ('LINEBELOW',     (0,0), (-1,0),  1, C_ACCENT),
+        ]))
+        return t
+    except Exception:
+        return None
+
+
+# ── Assumptions & Limitations section ────────────────────────────────────────
+
+def assumptions_section(C_ACCENT):
+    """Static gray-bordered box with disclaimer text."""
+    try:
+        text = (
+            'This report is based solely on the financial data provided and has not been independently verified. '
+            'Forecasts are estimates based on historical trends and should not be relied upon as guarantees of '
+            'future performance. Corporation tax estimates are indicative only — consult your accountant '
+            'for exact liability. All figures are presented in GBP and are unaudited unless otherwise stated.'
+        )
+        t = Table([[Paragraph(text, s('asn', fontSize=8, textColor=GRAY, leading=13))]], colWidths=[175*mm])
+        t.setStyle(TableStyle([
+            ('BOX',           (0,0),(-1,-1), 0.5,  BORDER),
+            ('BACKGROUND',    (0,0),(-1,-1), OFFWHITE),
+            ('TOPPADDING',    (0,0),(-1,-1), 8),
+            ('BOTTOMPADDING', (0,0),(-1,-1), 8),
+            ('LEFTPADDING',   (0,0),(-1,-1), 10),
+            ('RIGHTPADDING',  (0,0),(-1,-1), 10),
+        ]))
+        return t
+    except Exception:
+        return None
+
+
 # ── Dynamic P&L table ─────────────────────────────────────────────────────────
 
-def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
+def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, periods_full=None):
     ncols = len(periods)
     show_periods = ncols > 0
 
@@ -1378,6 +1570,12 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
         nm_vals = [fmtp(d.get('net_margin_'+k)) for k in periods_keys] if show_periods else []
         rows.append([label('Net Margin %', sub=True)] + [td(x) for x in nm_vals] + [td(fmtp(d.get('net_margin')))] + [td('—')])
 
+    # Data sources footnote
+    period_labels = ', '.join(periods_full if periods_full else periods)
+    fn_text = f'Based on data provided for {period_labels}. Figures are unaudited management accounts.'
+    rows.append([Paragraph(fn_text, s('plfn', fontSize=7, textColor=GRAY, leading=10, fontName=FONT_SANS))] + ['']*(ncols+2))
+    fn_row_idx = len(rows)-1
+
     colw = [60*mm] + [(115*mm)/(ncols+2)]*(ncols+2)
     t = Table(rows, colWidths=colw, repeatRows=1)
     style = [
@@ -1389,6 +1587,10 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items):
         ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
         ('BACKGROUND',(0,net_row_idx),(-1,net_row_idx),colors.HexColor('#FFF7E6')),
         ('LINEABOVE',(0,net_row_idx),(-1,net_row_idx),1.5,NAVY),
+        ('SPAN',(0,fn_row_idx),(-1,fn_row_idx)),
+        ('BACKGROUND',(0,fn_row_idx),(-1,fn_row_idx),OFFWHITE),
+        ('TOPPADDING',(0,fn_row_idx),(-1,fn_row_idx),4),
+        ('BOTTOMPADDING',(0,fn_row_idx),(-1,fn_row_idx),4),
     ]
     for ci in cat_rows: style.append(('SPAN',(0,ci),(-1,ci)))
     for ti in teal_rows: style.append(('BACKGROUND',(0,ti),(-1,ti),TEAL_LITE))
@@ -1547,6 +1749,12 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
     if has_val(d.get('net_margin')):
         rows.append([label('Net Margin %',sub=True)]+[td(fmtp(d.get('net_margin_'+k))) for k in periods_keys]+[td(fmtp(d.get('net_margin'))),td(fmtp(d.get('prev_net_margin'))),td('—')])
 
+    # Data sources footnote
+    ncols_total = ncols + 3
+    fn_txt = f'Based on data provided. Figures are unaudited management accounts.'
+    rows.append([Paragraph(fn_txt, s('cplfn', fontSize=7, textColor=GRAY, leading=10, fontName=FONT_SANS))] + ['']*(ncols_total-1))
+    cplfn_idx = len(rows)-1
+
     period_cw = min(22*mm, 60*mm/max(ncols,1))
     cw = [60*mm]+[period_cw]*ncols+[24*mm,24*mm,20*mm]
     t=Table(rows,colWidths=cw,repeatRows=1)
@@ -1559,6 +1767,10 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         ('TOPPADDING',(0,0),(-1,-1),3),('BOTTOMPADDING',(0,0),(-1,-1),3),
         ('LEFTPADDING',(0,0),(-1,-1),4),('RIGHTPADDING',(0,0),(-1,-1),4),
         ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+        ('SPAN',(0,cplfn_idx),(-1,cplfn_idx)),
+        ('BACKGROUND',(0,cplfn_idx),(-1,cplfn_idx),OFFWHITE),
+        ('TOPPADDING',(0,cplfn_idx),(-1,cplfn_idx),4),
+        ('BOTTOMPADDING',(0,cplfn_idx),(-1,cplfn_idx),4),
     ]
     for ti in teal_rows: style_cmds.append(('BACKGROUND',(0,ti),(-1,ti),TEAL_LITE))
     for bi in blank_rows:
@@ -1928,6 +2140,9 @@ def build_report(d):
     d['_download_name'] = download_name
 
     doc=SimpleDocTemplate(buf,pagesize=A4,leftMargin=17*mm,rightMargin=17*mm,topMargin=11*mm,bottomMargin=14*mm)
+    doc.title   = f"{d.get('business_name','Report')} — Financial Report — {d.get('period','')}"
+    doc.author  = prepared_by
+    doc.subject = f"Financial Report for {d.get('business_name','')}"
 
     periods_raw = d.get('periods','')
     if isinstance(periods_raw, list):
@@ -1982,8 +2197,9 @@ def build_report(d):
     total_r = clean(d.get('total_revenue'))
 
     # ── New field extraction ──────────────────────────────────────────────────
-    health_score     = clean(d.get('health_score'))
-    recommendations  = d.get('recommendations')
+    health_score          = clean(d.get('health_score'))
+    recommendations       = d.get('recommendations')
+    plain_english_summary = str(d.get('plain_english_summary','')).strip()
     forecast_period  = str(d.get('forecast_period','')).strip()
     forecast_rev     = clean(d.get('forecast_revenue'))
     forecast_profit  = clean(d.get('forecast_profit'))
@@ -2001,6 +2217,7 @@ def build_report(d):
     has_notes        = bool(accountant_notes and accountant_notes.upper() not in ('NA','N/A','NONE',''))
     has_recs         = bool(recommendations and str(recommendations).strip() not in ('','NA','N/A','NONE','[]'))
     has_health       = health_score is not None
+    has_plain_summary = bool(plain_english_summary and plain_english_summary.upper() not in ('NA','N/A','NONE',''))
 
     # Per-client accent colour (overrides firm accent if provided)
     def safe_colour(hex_val, fallback):
@@ -2080,8 +2297,40 @@ def build_report(d):
             if cex: story.append(KeepTogether([cex, Spacer(1,3*mm)]))
         except Exception:
             pass
+    # Health score verdict sentence (item 8)
+    if has_health:
+        if health_score >= 8:
+            verdict_txt = '<b>Overall:</b> Strong period — the business is performing well across key indicators.'
+        elif health_score >= 5:
+            verdict_txt = '<b>Overall:</b> Solid period with some areas for improvement identified.'
+        else:
+            verdict_txt = '<b>Overall:</b> This period requires management attention across several key metrics.'
+        story.append(Paragraph(verdict_txt, s('verdict', fontName=FONT_SANS, fontSize=9, textColor=DARK, leading=13)))
+        story.append(Spacer(1,2*mm))
     story.append(Paragraph(str(d.get('executive_summary','No summary provided.')),ST_BODY))
     story.append(Spacer(1,3*mm))
+    # "What this means for you" plain-English callout (item 5)
+    if has_plain_summary:
+        try:
+            pes_box = Table(
+                [[Paragraph(plain_english_summary, s('pes', fontName=FONT_SANS, fontSize=9, textColor=colors.HexColor('#1A3A2A'), leading=14))]],
+                colWidths=[175*mm],
+            )
+            pes_box.setStyle(TableStyle([
+                ('BOX',          (0,0),(-1,-1), 1,   C_ACCENT),
+                ('LINEBEFORE',   (0,0),(0,-1),  4,   C_ACCENT),
+                ('BACKGROUND',   (0,0),(-1,-1),      TEAL_LITE),
+                ('TOPPADDING',   (0,0),(-1,-1), 8),
+                ('BOTTOMPADDING',(0,0),(-1,-1), 8),
+                ('LEFTPADDING',  (0,0),(-1,-1), 10),
+                ('RIGHTPADDING', (0,0),(-1,-1), 8),
+            ]))
+            story.append(KeepTogether([
+                Paragraph('What This Means for You', s('wms', fontName=FONT_SANS_BOLD, fontSize=8.5, textColor=C_ACCENT, leading=12)),
+                Spacer(1,2*mm), pes_box, Spacer(1,3*mm),
+            ]))
+        except Exception:
+            pass
 
     # ── KPI Cards ─────────────────────────────────────────────────────────────
     if is_comparison:
@@ -2279,7 +2528,7 @@ def build_report(d):
         if is_comparison:
             story.append(comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, prev_revenue_items, prev_cogs_items, prev_opex_items, C_ACCENT))
         else:
-            story.append(pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items))
+            story.append(pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, periods_full=periods_full))
         story.append(Spacer(1,3*mm))
 
         # Waterfall
@@ -2307,10 +2556,21 @@ def build_report(d):
         except Exception:
             pass
 
+        # ── Break-Even Analysis (item 4) ──────────────────────────────────────
+        try:
+            be_t = breakeven_section(d, C_ACCENT)
+            if be_t:
+                story.append(KeepTogether([
+                    section_header('Break-Even Analysis', C_ACCENT),
+                    Spacer(1,3*mm), be_t, Spacer(1,3*mm),
+                ]))
+        except Exception:
+            pass
+
     # ── Cash Flow ─────────────────────────────────────────────────────────────
     if has_cashflow:
         try:
-            cf = cash_flow_section(d, C_ACCENT)
+            cf = cash_flow_section(d, C_ACCENT, ncols=max(len(periods), 1))
             if cf:
                 story.append(KeepTogether([
                     section_header('Cash Flow Summary', C_ACCENT),
@@ -2370,6 +2630,17 @@ def build_report(d):
         except Exception:
             pass
 
+    # ── Questions to Discuss (item 2) ────────────────────────────────────────
+    try:
+        qs = questions_section(d, C_ACCENT)
+        if qs:
+            story.append(KeepTogether([
+                section_header('Questions to Discuss', C_ACCENT),
+                Spacer(1,3*mm), qs, Spacer(1,3*mm),
+            ]))
+    except Exception:
+        pass
+
     # ── Forecast ──────────────────────────────────────────────────────────────
     if has_forecast:
         try:
@@ -2379,6 +2650,15 @@ def build_report(d):
                 story.append(Spacer(1,3*mm))
                 for el in fc_els: story.append(el)
                 story.append(Spacer(1,3*mm))
+        except Exception:
+            pass
+
+    # ── Key Wins (item 3) ─────────────────────────────────────────────────────
+    if flag_lines:
+        try:
+            kw = key_wins_section(flag_lines, C_ACCENT)
+            if kw:
+                story.append(KeepTogether([kw, Spacer(1,3*mm)]))
         except Exception:
             pass
 
@@ -2407,6 +2687,21 @@ def build_report(d):
             else:
                 severity='WATCH'; title='Flag'; body=fl.strip()
             story.append(KeepTogether([flag_card(i+1,title,body,severity),Spacer(1,2*mm)]))
+        # VAT threshold alert (item 6)
+        try:
+            rev_v = clean(d.get('total_revenue'))
+            if rev_v is not None and 70000 <= rev_v <= 90000:
+                vat_body = (
+                    f'Revenue of {fmt(rev_v)} is approaching the UK VAT registration threshold of £85,000. '
+                    'If turnover exceeds this threshold in any 12-month rolling period, VAT registration '
+                    'becomes mandatory. Consider reviewing pricing strategy and cash flow implications in advance.'
+                )
+                story.append(KeepTogether([
+                    flag_card(len(flag_lines)+1, 'VAT Registration Threshold Alert', vat_body, 'INFO'),
+                    Spacer(1,2*mm),
+                ]))
+        except Exception:
+            pass
         story.append(Spacer(1,3*mm))
 
     # ── Accountant's Notes ────────────────────────────────────────────────────
@@ -2428,6 +2723,17 @@ def build_report(d):
             Paragraph(str(d.get('outlook')),ST_BODY),
             Spacer(1,3*mm),
         ]))
+
+    # ── Assumptions & Limitations (item 9) ───────────────────────────────────
+    try:
+        asn = assumptions_section(C_ACCENT)
+        if asn:
+            story.append(KeepTogether([
+                section_header('Assumptions & Limitations', C_ACCENT),
+                Spacer(1,3*mm), asn, Spacer(1,3*mm),
+            ]))
+    except Exception:
+        pass
 
     # ── Glossary ──────────────────────────────────────────────────────────────
     try:
