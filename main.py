@@ -2103,6 +2103,323 @@ def dual_waterfall_chart(d, C_ACCENT):
         return None
 
 
+# ── Report card section ───────────────────────────────────────────────────────
+
+def report_card_section(d, C_ACCENT):
+    """5 letter-grade cards: Revenue Growth, Gross Margin, Cost Control, Net Profitability, Overall Health."""
+    try:
+        def grade_card(dimension, grade, explanation, col):
+            bg_map = {
+                GREEN_TEXT: GREEN_SOFT,
+                TEAL:       TEAL_LITE,
+                GOLD:       AMBER_SOFT,
+                AMBER_TEXT: AMBER_SOFT,
+                RED_TEXT:   RED_SOFT,
+            }
+            bg = bg_map.get(col, OFFWHITE)
+            dim_s  = s(f'rcd{grade}{dimension[:4]}', fontName=FONT_SANS_BOLD, fontSize=6.5, textColor=DARK, leading=9, alignment=TA_CENTER)
+            grd_s  = s(f'rcg{grade}{dimension[:4]}', fontName=FONT_SERIF_BOLD, fontSize=28, textColor=col, leading=33, alignment=TA_CENTER)
+            exp_s  = s(f'rce{grade}{dimension[:4]}', fontName=FONT_SANS, fontSize=6.5, textColor=GRAY, leading=9, alignment=TA_CENTER)
+            data   = [
+                [Paragraph(dimension, dim_s)],
+                [Paragraph(grade, grd_s)],
+                [Paragraph(explanation, exp_s)],
+            ]
+            cw = 175*mm / 5
+            t = Table(data, colWidths=[cw])
+            t.setStyle(TableStyle([
+                ('BACKGROUND',    (0,0),(-1,-1), bg),
+                ('BOX',           (0,0),(-1,-1), 1,   col),
+                ('LINEABOVE',     (0,0),(-1,0),  3,   col),
+                ('TOPPADDING',    (0,0),(-1,-1), 6),
+                ('BOTTOMPADDING', (0,0),(-1,-1), 6),
+                ('LEFTPADDING',   (0,0),(-1,-1), 3),
+                ('RIGHTPADDING',  (0,0),(-1,-1), 3),
+            ]))
+            return t
+
+        cards = []
+        cw = 175*mm / 5
+
+        # Revenue Growth (requires comparison data)
+        curr_rev = clean(d.get('total_revenue'))
+        prev_rev = clean(d.get('prev_total_revenue'))
+        if curr_rev is not None and prev_rev is not None and prev_rev != 0:
+            pct = (curr_rev - prev_rev) / abs(prev_rev) * 100
+            if   pct >  20: g, col, exp = 'A', GREEN_TEXT, f'+{pct:.0f}% growth'
+            elif pct >  10: g, col, exp = 'B', TEAL,       f'+{pct:.0f}% growth'
+            elif pct >=  0: g, col, exp = 'C', GOLD,       f'+{pct:.0f}% growth'
+            elif pct > -20: g, col, exp = 'D', AMBER_TEXT, f'{pct:.0f}% decline'
+            else:           g, col, exp = 'F', RED_TEXT,   f'{pct:.0f}% decline'
+            cards.append(grade_card('Revenue Growth', g, exp, col))
+
+        # Gross Margin Quality
+        gm = clean(d.get('gross_margin'))
+        if gm is not None:
+            gm100 = gm if gm > 1 else gm * 100
+            if   gm100 > 70: g, col, exp = 'A', GREEN_TEXT, f'{gm100:.0f}% margin'
+            elif gm100 > 60: g, col, exp = 'B', TEAL,       f'{gm100:.0f}% margin'
+            elif gm100 > 50: g, col, exp = 'C', GOLD,       f'{gm100:.0f}% margin'
+            elif gm100 > 40: g, col, exp = 'D', AMBER_TEXT, f'{gm100:.0f}% margin'
+            else:            g, col, exp = 'F', RED_TEXT,   f'{gm100:.0f}% margin'
+            cards.append(grade_card('Gross Margin', g, exp, col))
+
+        # Cost Control
+        opex_v = clean(d.get('total_opex'))
+        rev_v  = clean(d.get('total_revenue'))
+        if opex_v is not None and rev_v and rev_v > 0:
+            op_pct = opex_v / rev_v * 100
+            if   op_pct < 30: g, col, exp = 'A', GREEN_TEXT, f'{op_pct:.0f}% of rev'
+            elif op_pct < 40: g, col, exp = 'B', TEAL,       f'{op_pct:.0f}% of rev'
+            elif op_pct < 50: g, col, exp = 'C', GOLD,       f'{op_pct:.0f}% of rev'
+            elif op_pct < 60: g, col, exp = 'D', AMBER_TEXT, f'{op_pct:.0f}% of rev'
+            else:             g, col, exp = 'F', RED_TEXT,   f'{op_pct:.0f}% of rev'
+            cards.append(grade_card('Cost Control', g, exp, col))
+
+        # Net Profitability
+        nm = clean(d.get('net_margin'))
+        if nm is not None:
+            nm100 = nm if nm > 1 else nm * 100
+            if   nm100 >  25: g, col, exp = 'A', GREEN_TEXT, f'{nm100:.0f}% margin'
+            elif nm100 >  15: g, col, exp = 'B', TEAL,       f'{nm100:.0f}% margin'
+            elif nm100 >   8: g, col, exp = 'C', GOLD,       f'{nm100:.0f}% margin'
+            elif nm100 >=  0: g, col, exp = 'D', AMBER_TEXT, f'{nm100:.0f}% margin'
+            else:             g, col, exp = 'F', RED_TEXT,   f'{nm100:.0f}% margin'
+            cards.append(grade_card('Net Profitability', g, exp, col))
+
+        # Overall Health
+        hs = clean(d.get('health_score'))
+        if hs is not None:
+            hs = max(1, min(10, hs))
+            if   hs >= 9: g, col, exp = 'A', GREEN_TEXT, f'{hs:.0f}/10 score'
+            elif hs >= 7: g, col, exp = 'B', TEAL,       f'{hs:.0f}/10 score'
+            elif hs >= 5: g, col, exp = 'C', GOLD,       f'{hs:.0f}/10 score'
+            elif hs >= 3: g, col, exp = 'D', AMBER_TEXT, f'{hs:.0f}/10 score'
+            else:         g, col, exp = 'F', RED_TEXT,   f'{hs:.0f}/10 score'
+            cards.append(grade_card('Overall Health', g, exp, col))
+
+        if not cards:
+            return None
+
+        while len(cards) < 5:
+            cards.append(Spacer(cw, 1))
+        t = Table([cards[:5]], colWidths=[cw]*5)
+        t.setStyle(TableStyle([
+            ('LEFTPADDING',  (0,0),(-1,-1), 2),
+            ('RIGHTPADDING', (0,0),(-1,-1), 2),
+            ('TOPPADDING',   (0,0),(-1,-1), 0),
+            ('BOTTOMPADDING',(0,0),(-1,-1), 0),
+            ('VALIGN',       (0,0),(-1,-1), 'TOP'),
+        ]))
+        return t
+    except Exception:
+        return None
+
+
+# ── Peer comparison section ───────────────────────────────────────────────────
+
+def peer_comparison_section(d, C_ACCENT):
+    """3-col benchmark table: Metric | Your Business | Industry Benchmark."""
+    try:
+        search_text = (str(d.get('business_name','')) + ' ' + str(d.get('executive_summary',''))).lower()
+        # sector: (display_name, bench_gm%, bench_nm%)
+        _sectors = [
+            (['restaurant','hospitality','cafe','hotel','pub'],
+             'Restaurant / Hospitality', 67.5, 8.0),
+            (['retail','shop','store','ecommerce','e-commerce'],
+             'Retail', 45.0, 5.5),
+            (['consult','accountan','solicitor','law firm','architect','marketing agency'],
+             'Professional Services', 67.5, 20.0),
+            (['construction','build','contractor','housebuilder'],
+             'Construction', 25.0, 5.5),
+            (['tech','software','saas','digital agency','app','platform'],
+             'Technology / SaaS', 75.0, 15.0),
+        ]
+        sector_name, bench_gm, bench_nm = 'Other / General', 55.0, 11.5
+        for kws, name, bgm, bnm in _sectors:
+            if any(kw in search_text for kw in kws):
+                sector_name, bench_gm, bench_nm = name, bgm, bnm
+                break
+
+        gm = clean(d.get('gross_margin'))
+        nm = clean(d.get('net_margin'))
+        if gm is None and nm is None:
+            return None
+
+        gm100 = (gm if gm > 1 else gm * 100) if gm is not None else None
+        nm100 = (nm if nm > 1 else nm * 100) if nm is not None else None
+
+        def _status(actual, benchmark):
+            diff = actual - benchmark
+            if diff >= 0:
+                return GREEN_TEXT, f'▲ {abs(diff):.1f}pp above'
+            elif diff >= -5:
+                return AMBER_TEXT, f'▼ {abs(diff):.1f}pp below'
+            else:
+                return RED_TEXT,   f'▼ {abs(diff):.1f}pp below'
+
+        hdr  = [Paragraph('Metric', ST_TH_L), Paragraph('Your Business', ST_TH), Paragraph('Industry Benchmark', ST_TH)]
+        rows = [hdr]
+
+        if gm100 is not None:
+            gc, gnote = _status(gm100, bench_gm)
+            rows.append([
+                Paragraph('Gross Margin %', ST_TD_L),
+                Paragraph(f'{gm100:.1f}%', s('pcgmv', fontName=FONT_SANS_BOLD, fontSize=8, textColor=gc, alignment=TA_RIGHT, leading=11)),
+                Paragraph(f'~{bench_gm:.0f}%  ({gnote})', s('pcgmb', fontSize=7.5, textColor=gc, alignment=TA_RIGHT, leading=11)),
+            ])
+        if nm100 is not None:
+            nc, nnote = _status(nm100, bench_nm)
+            rows.append([
+                Paragraph('Net Margin %', ST_TD_L),
+                Paragraph(f'{nm100:.1f}%', s('pcnmv', fontName=FONT_SANS_BOLD, fontSize=8, textColor=nc, alignment=TA_RIGHT, leading=11)),
+                Paragraph(f'~{bench_nm:.0f}%  ({nnote})', s('pcnmb', fontSize=7.5, textColor=nc, alignment=TA_RIGHT, leading=11)),
+            ])
+
+        fn_s  = s('pcfn', fontSize=7, textColor=GRAY, leading=10)
+        fn_txt = f'Benchmarks based on UK SME industry averages ({sector_name}). Individual business performance varies.'
+        rows.append([Paragraph(fn_txt, fn_s), '', ''])
+        fn_idx = len(rows) - 1
+
+        t = Table(rows, colWidths=[60*mm, 55*mm, 60*mm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND',    (0,0),  (-1,0),       NAVY),
+            ('ROWBACKGROUNDS',(0,1),  (-1,fn_idx-1),[WHITE, OFFWHITE]),
+            ('BACKGROUND',    (0,fn_idx),(-1,fn_idx), OFFWHITE),
+            ('SPAN',          (0,fn_idx),(-1,fn_idx)),
+            ('TOPPADDING',    (0,0),  (-1,-1), 5),
+            ('BOTTOMPADDING', (0,0),  (-1,-1), 5),
+            ('LEFTPADDING',   (0,0),  (-1,-1), 8),
+            ('RIGHTPADDING',  (0,0),  (-1,-1), 8),
+            ('VALIGN',        (0,0),  (-1,-1), 'MIDDLE'),
+            ('LINEBELOW',     (0,0),  (-1,0),  1, C_ACCENT),
+        ]))
+        return t
+    except Exception:
+        return None
+
+
+# ── Next 90 days action plan ──────────────────────────────────────────────────
+
+def next_90_days_section(d, C_ACCENT):
+    """3 numbered action cards from next_90_days field or fallback to recommendations."""
+    try:
+        actions = d.get('next_90_days')
+        if actions:
+            if isinstance(actions, str):
+                try: actions = json.loads(actions)
+                except Exception: actions = [a.strip() for a in actions.split('|') if a.strip()]
+        if not actions or not isinstance(actions, list) or not any(str(a).strip() for a in actions):
+            recs = d.get('recommendations')
+            if recs:
+                if isinstance(recs, str):
+                    try: recs = json.loads(recs)
+                    except Exception: recs = [r.strip() for r in recs.split('|') if r.strip()]
+                actions = recs if isinstance(recs, list) else []
+        if not actions:
+            return []
+        actions = [str(a).strip() for a in actions if str(a).strip()][:3]
+        if not actions:
+            return []
+
+        items = []
+        for i, action in enumerate(actions, 1):
+            num_s = s(f'nd{i}num', fontName=FONT_SERIF_BOLD, fontSize=20, textColor=GOLD, leading=24, alignment=TA_CENTER)
+            txt_s = s(f'nd{i}txt', fontName=FONT_SANS, fontSize=8.5, textColor=DARK, leading=13)
+            row = Table([[
+                Paragraph(str(i), num_s),
+                Paragraph(action, txt_s),
+            ]], colWidths=[14*mm, 161*mm])
+            row.setStyle(TableStyle([
+                ('VALIGN',       (0,0),(-1,-1), 'TOP'),
+                ('TOPPADDING',   (0,0),(-1,-1), 7),
+                ('BOTTOMPADDING',(0,0),(-1,-1), 7),
+                ('LEFTPADDING',  (0,0),(0,0),   0),
+                ('RIGHTPADDING', (0,0),(0,0),   6),
+                ('LEFTPADDING',  (1,0),(1,0),   8),
+                ('LINEBEFORE',   (0,0),(0,-1),  3, GOLD),
+                ('BACKGROUND',   (0,0),(-1,-1), OFFWHITE),
+                ('BOX',          (0,0),(-1,-1), 0.5, BORDER),
+            ]))
+            items.append(row)
+            items.append(Spacer(1, 2*mm))
+        return items
+    except Exception:
+        return []
+
+
+# ── Introduction letter ───────────────────────────────────────────────────────
+
+def intro_letter(d, prepared_by, is_wl, wl_contact, C_PRIMARY):
+    """Formal introduction letter page for white label reports only."""
+    if not is_wl:
+        return []
+    try:
+        import datetime as _dt
+        bname        = str(d.get('business_name', 'the Client'))
+        period       = str(d.get('period', ''))
+        today        = _dt.datetime.now().strftime('%d %B %Y')
+        contact_clean = wl_contact if wl_contact and wl_contact.upper() not in ('NA','N/A','NONE','') else ''
+
+        items = []
+
+        # Letterhead strip
+        hdr_rows = [[Paragraph(prepared_by, s('ltfirm', fontName=FONT_SERIF_BOLD, fontSize=16, textColor=WHITE, leading=21))]]
+        if contact_clean:
+            hdr_rows.append([Paragraph(contact_clean, s('ltcon', fontName=FONT_SANS, fontSize=8, textColor=colors.HexColor('#9BB5D4'), leading=11))])
+        hdr_t = Table(hdr_rows, colWidths=[175*mm])
+        top_pad = [('TOPPADDING',(0,0),(-1,0), 12), ('BOTTOMPADDING',(0,-1),(-1,-1), 12)]
+        hdr_t.setStyle(TableStyle([
+            ('BACKGROUND', (0,0),(-1,-1), C_PRIMARY),
+            ('LEFTPADDING',(0,0),(-1,-1), 10),
+            ('RIGHTPADDING',(0,0),(-1,-1), 10),
+            ('TOPPADDING', (0,0),(-1,-1), 3),
+            ('BOTTOMPADDING',(0,0),(-1,-1),3),
+            ('TOPPADDING', (0,0),(-1,0),  12),
+            ('BOTTOMPADDING',(0,-1),(-1,-1),12),
+        ]))
+        items.append(hdr_t)
+        items.append(Spacer(1, 10*mm))
+
+        # Date right-aligned
+        items.append(Paragraph(today, s('ltdate', fontName=FONT_SANS, fontSize=9, textColor=DARK, alignment=TA_RIGHT, leading=13)))
+        items.append(Spacer(1, 8*mm))
+
+        # Salutation
+        items.append(Paragraph(f'Dear {bname} Team,', s('ltsal', fontName=FONT_SERIF, fontSize=11, textColor=DARK, leading=16)))
+        items.append(Spacer(1, 6*mm))
+
+        # Body paragraph 1
+        p1 = (
+            f'Please find enclosed your financial report for <b>{period}</b>, prepared by {prepared_by}. '
+            f'This report provides a detailed review of your business\'s financial performance, '
+            f'including profit &amp; loss analysis, key performance indicators, and strategic observations '
+            f'designed to support informed business decisions.'
+        )
+        items.append(Paragraph(p1, s('ltb1', fontName=FONT_SERIF, fontSize=10, textColor=DARK, leading=17)))
+        items.append(Spacer(1, 5*mm))
+
+        # Body paragraph 2
+        contact_suffix = f' You can reach us at {contact_clean}.' if contact_clean else ''
+        p2 = (
+            'If you have any questions about the contents of this report, or would like to discuss '
+            'any of the findings in more detail, please do not hesitate to get in touch.'
+            + contact_suffix
+        )
+        items.append(Paragraph(p2, s('ltb2', fontName=FONT_SERIF, fontSize=10, textColor=DARK, leading=17)))
+        items.append(Spacer(1, 14*mm))
+
+        # Sign off
+        items.append(Paragraph('Yours sincerely,', s('ltso', fontName=FONT_SANS, fontSize=10, textColor=DARK, leading=15)))
+        items.append(Spacer(1, 10*mm))
+        items.append(Paragraph(prepared_by, s('ltsig', fontName=FONT_SERIF_BOLD, fontSize=12, textColor=DARK, leading=17)))
+
+        items.append(PageBreak())
+        return items
+    except Exception:
+        return []
+
+
 # ── Build report ──────────────────────────────────────────────────────────────
 
 def build_report(d):
@@ -2266,6 +2583,23 @@ def build_report(d):
         toc_sections.append('Outlook')
     toc_sections.append('Glossary')
 
+    # ── Data anomaly detection (item 8) ──────────────────────────────────────
+    _anomalies = []
+    for _k in periods_keys:
+        _rv = clean(d.get('revenue_'+_k))
+        if _rv is not None and _rv == 0:
+            _anomalies.append(f'period revenue of £0 detected ({_k})')
+            break
+    if periods_keys and total_r and total_r > 0:
+        _pr_sum = sum(clean(d.get('revenue_'+_k)) or 0 for _k in periods_keys)
+        if _pr_sum > 0 and abs(total_r - _pr_sum) / total_r > 0.15:
+            _anomalies.append('total revenue does not match sum of period revenues')
+    _np_v = clean(d.get('net_profit'))
+    _gp_v = clean(d.get('gross_profit'))
+    if _np_v is not None and _gp_v is not None and _gp_v > 0 and _np_v > _gp_v:
+        _anomalies.append('net profit exceeds gross profit (possible data error)')
+    _has_anomaly = bool(_anomalies)
+
     story = []
 
     # ── Cover page ────────────────────────────────────────────────────────────
@@ -2282,8 +2616,33 @@ def build_report(d):
     except Exception:
         pass
 
+    # ── Introduction letter (item 5, white label only) ────────────────────────
+    try:
+        letter_els = intro_letter(d, prepared_by, is_wl, wl_contact, C_PRIMARY)
+        story.extend(letter_els)
+    except Exception:
+        pass
+
     # The per-page header is drawn by PageNumCanvas on pages 2+ via canvas overlay.
     story.append(Spacer(1,2*mm))
+
+    # ── Glossary callout (item 4) ─────────────────────────────────────────────
+    try:
+        gco_t = Table([[Paragraph(
+            'New to financial reports? Key terms are explained in the <b>Glossary</b> on the final page.',
+            s('gco', fontName=FONT_SANS, fontSize=7.5, textColor=WHITE, leading=11, alignment=TA_CENTER),
+        )]], colWidths=[175*mm])
+        gco_t.setStyle(TableStyle([
+            ('BACKGROUND',    (0,0),(-1,-1), TEAL),
+            ('TOPPADDING',    (0,0),(-1,-1), 5),
+            ('BOTTOMPADDING', (0,0),(-1,-1), 5),
+            ('LEFTPADDING',   (0,0),(-1,-1), 8),
+            ('RIGHTPADDING',  (0,0),(-1,-1), 8),
+        ]))
+        story.append(gco_t)
+        story.append(Spacer(1, 3*mm))
+    except Exception:
+        pass
 
     # ── Executive Summary ─────────────────────────────────────────────────────
     story.append(KeepTogether([section_header('Executive Summary', C_ACCENT), Spacer(1,3*mm)]))
@@ -2308,6 +2667,18 @@ def build_report(d):
         story.append(Paragraph(verdict_txt, s('verdict', fontName=FONT_SANS, fontSize=9, textColor=DARK, leading=13)))
         story.append(Spacer(1,2*mm))
     story.append(Paragraph(str(d.get('executive_summary','No summary provided.')),ST_BODY))
+    # Confidence indicator (item 6)
+    try:
+        _n_per = len([v for v in period_rev if has_val(v)]) or max(len(periods), 1)
+        if _n_per >= 3:
+            _conf_txt = f'Analysis confidence: High — based on {_n_per} periods of data.'
+        elif _n_per == 2:
+            _conf_txt = f'Analysis confidence: Moderate — based on {_n_per} periods of data.'
+        else:
+            _conf_txt = 'Analysis confidence: Low — based on single period data.'
+        story.append(Paragraph(_conf_txt, s('conf', fontName=FONT_SERIF_IT, fontSize=7.5, textColor=GRAY, leading=11)))
+    except Exception:
+        pass
     story.append(Spacer(1,3*mm))
     # "What this means for you" plain-English callout (item 5)
     if has_plain_summary:
@@ -2373,6 +2744,17 @@ def build_report(d):
             story.append(KeepTogether([
                 section_header('At a Glance', C_ACCENT),
                 Spacer(1,3*mm), tld, Spacer(1,3*mm),
+            ]))
+    except Exception:
+        pass
+
+    # ── Report Card (item 1) ──────────────────────────────────────────────────
+    try:
+        rc = report_card_section(d, C_ACCENT)
+        if rc:
+            story.append(KeepTogether([
+                section_header('Report Card', C_ACCENT),
+                Spacer(1,3*mm), rc, Spacer(1,3*mm),
             ]))
     except Exception:
         pass
@@ -2465,6 +2847,27 @@ def build_report(d):
         story.append(KeepTogether(rev_section_els[:4]))  # keep first block together
         for el in rev_section_els[4:]: story.append(el)
 
+        # Seasonal trend note (item 7)
+        try:
+            _pr_clean = [clean(v) for v in period_rev if clean(v) is not None]
+            if len(_pr_clean) >= 3:
+                _mean_r = sum(_pr_clean) / len(_pr_clean)
+                _std    = (sum((v - _mean_r)**2 for v in _pr_clean) / len(_pr_clean)) ** 0.5
+                if _mean_r > 0 and _std / _mean_r > 0.25:
+                    _existing_titles = {fl.split('|')[1].lower() for fl in flag_lines if len(fl.split('|')) >= 2}
+                    if not any('season' in t for t in _existing_titles):
+                        _seas_body = (
+                            'Revenue shows significant variation across periods. '
+                            'This may reflect normal seasonal trading patterns. '
+                            'Consider whether seasonal cash flow planning strategies are in place.'
+                        )
+                        story.append(KeepTogether([
+                            flag_card('★', 'Seasonal Variation Detected', _seas_body, 'INFO'),
+                            Spacer(1, 2*mm),
+                        ]))
+        except Exception:
+            pass
+
     # ── Expense Breakdown + Pie chart ─────────────────────────────────────────
     if opex_with_totals:
         cards = []
@@ -2545,6 +2948,17 @@ def build_report(d):
         except Exception:
             pass
 
+        # ── Peer Comparison (item 2) ──────────────────────────────────────────
+        try:
+            pc_t = peer_comparison_section(d, C_ACCENT)
+            if pc_t:
+                story.append(KeepTogether([
+                    section_header('Peer Comparison', C_ACCENT),
+                    Spacer(1,3*mm), pc_t, Spacer(1,3*mm),
+                ]))
+        except Exception:
+            pass
+
         # ── Corporation Tax Estimate (after P&L) ─────────────────────────────
         try:
             tax_t = tax_estimate_section(d.get('net_profit'), C_ACCENT)
@@ -2553,6 +2967,32 @@ def build_report(d):
                     section_header('Corporation Tax Estimate', C_ACCENT),
                     Spacer(1,3*mm), tax_t, Spacer(1,3*mm),
                 ]))
+        except Exception:
+            pass
+
+        # ── Salary optimisation note (item 9) ────────────────────────────────
+        try:
+            _sal_np = clean(d.get('net_profit'))
+            if _sal_np is not None and _sal_np > 50000:
+                _sal_txt = (
+                    '<b>Owner-Managed Business Note:</b> With net profit exceeding £50,000, there may be '
+                    'opportunities to optimise your salary and dividend split to reduce overall tax liability. '
+                    'Discuss with your accountant.'
+                )
+                _sal_t = Table(
+                    [[Paragraph(_sal_txt, s('saln', fontName=FONT_SANS, fontSize=8.5, textColor=DARK, leading=13))]],
+                    colWidths=[175*mm],
+                )
+                _sal_t.setStyle(TableStyle([
+                    ('BACKGROUND',    (0,0),(-1,-1), OFFWHITE),
+                    ('LINEBEFORE',    (0,0),(0,-1),  4, GOLD),
+                    ('BOX',           (0,0),(-1,-1), 0.5, BORDER),
+                    ('TOPPADDING',    (0,0),(-1,-1), 8),
+                    ('BOTTOMPADDING', (0,0),(-1,-1), 8),
+                    ('LEFTPADDING',   (0,0),(-1,-1), 12),
+                    ('RIGHTPADDING',  (0,0),(-1,-1), 10),
+                ]))
+                story.append(KeepTogether([_sal_t, Spacer(1, 3*mm)]))
         except Exception:
             pass
 
@@ -2630,6 +3070,17 @@ def build_report(d):
         except Exception:
             pass
 
+    # ── Next 90 Days Action Plan (item 3) ────────────────────────────────────
+    try:
+        nd_els = next_90_days_section(d, C_ACCENT)
+        if nd_els:
+            story.append(section_header('Your Next 90 Days', C_ACCENT))
+            story.append(Spacer(1,3*mm))
+            for el in nd_els: story.append(el)
+            story.append(Spacer(1,3*mm))
+    except Exception:
+        pass
+
     # ── Questions to Discuss (item 2) ────────────────────────────────────────
     try:
         qs = questions_section(d, C_ACCENT)
@@ -2663,7 +3114,7 @@ def build_report(d):
             pass
 
     # ── Flags ─────────────────────────────────────────────────────────────────
-    if flag_lines:
+    if flag_lines or _has_anomaly:
         pos_count   = sum(1 for fl in flag_lines if fl.split('|')[0].strip().upper() == 'POSITIVE')
         watch_count = sum(1 for fl in flag_lines if fl.split('|')[0].strip().upper() in ('WATCH', 'INFO'))
         risk_count  = sum(1 for fl in flag_lines if fl.split('|')[0].strip().upper() == 'RISK')
@@ -2671,6 +3122,7 @@ def build_report(d):
         if pos_count:   fsum_parts.append(f'<font color="#15803D"><b>{pos_count} positive</b></font>')
         if watch_count: fsum_parts.append(f'<font color="#92400E"><b>{watch_count} watch</b></font>')
         if risk_count:  fsum_parts.append(f'<font color="#B91C1C"><b>{risk_count} risk</b></font>')
+        if _has_anomaly: fsum_parts.append(f'<font color="#92400E"><b>1 data review</b></font>')
         fsum_para = Paragraph(' · '.join(fsum_parts), s('flagsum', fontSize=8, leading=12)) if fsum_parts else None
         hdr_block = [section_header('Flags & Items to Watch', C_ACCENT), Spacer(1,2*mm)]
         if fsum_para:
@@ -2678,6 +3130,16 @@ def build_report(d):
         else:
             hdr_block.append(Spacer(1,3*mm))
         story.append(KeepTogether(hdr_block))
+        # Anomaly flag prepended at top of flags list
+        if _has_anomaly:
+            _anomaly_body = (
+                'Some figures in this report may require verification before sharing with your client: '
+                + '; '.join(_anomalies) + '.'
+            )
+            story.append(KeepTogether([
+                flag_card('!', 'Data Review Recommended', _anomaly_body, 'WATCH'),
+                Spacer(1, 2*mm),
+            ]))
         for i,fl in enumerate(flag_lines):
             parts = fl.split('|')
             if len(parts) >= 3:
