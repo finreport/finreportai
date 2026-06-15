@@ -472,36 +472,29 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                 c.setFillColor(C_PRIMARY)
                 c.rect(0, 0, pw, ph, fill=1, stroke=0)
 
-                # Left teal bar
+                # Left teal accent bar
                 c.setFillColor(TEAL)
                 c.rect(0, 0, 4, ph, fill=1, stroke=0)
 
                 # Teal angular shapes — bottom right
                 c.setFillColor(colors.Color(14/255, 138/255, 122/255, 0.13))
                 p = c.beginPath()
-                p.moveTo(pw, 0); p.lineTo(pw, ph*0.48); p.lineTo(pw*0.32, 0)
+                p.moveTo(pw, 0); p.lineTo(pw, ph*0.45); p.lineTo(pw*0.32, 0)
                 p.close(); c.drawPath(p, fill=1, stroke=0)
 
                 c.setFillColor(colors.Color(14/255, 138/255, 122/255, 0.09))
                 p2 = c.beginPath()
-                p2.moveTo(pw, 0); p2.lineTo(pw, ph*0.30); p2.lineTo(pw*0.55, 0)
+                p2.moveTo(pw, 0); p2.lineTo(pw, ph*0.28); p2.lineTo(pw*0.55, 0)
                 p2.close(); c.drawPath(p2, fill=1, stroke=0)
 
-                # Faint background word
+                # Faint background watermark word
                 c.setFillColor(colors.Color(14/255, 138/255, 122/255, 0.055))
                 c.setFont(FONT_SERIF_BOLD, 95)
-                c.drawString(14*mm, ph*0.36, bg_word)
+                c.drawString(8*mm, 62*mm, bg_word)
 
-                # ── Firm name area ─────────────────────────────────────────
-                # Double rule under firm header
-                c.setStrokeColor(colors.Color(14/255, 138/255, 122/255, 0.35))
-                c.setLineWidth(0.5)
-                c.line(14*mm, ph-38*mm, pw-8*mm, ph-38*mm)
-                c.setStrokeColor(colors.Color(201/255, 168/255, 76/255, 0.55))
-                c.setLineWidth(0.8)
-                c.line(14*mm, ph-39*mm, pw-8*mm, ph-39*mm)
+                # ── ZONE 1 — Firm header (top) ─────────────────────────────
+                firm_y = ph - 20*mm   # baseline ~258mm from bottom
 
-                # Firm name text
                 if is_wl and wl_logo and wl_logo.upper() not in ('NA','N/A','','NONE'):
                     try:
                         import urllib.request, tempfile
@@ -510,60 +503,75 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                         urllib.request.urlretrieve(wl_logo, tmp.name)
                         img = RLImage(tmp.name, width=50*mm, height=10*mm, kind='proportional')
                         img.wrapOn(c, 50*mm, 12*mm)
-                        img.drawOn(c, 14*mm, ph-28*mm)
+                        img.drawOn(c, 14*mm, firm_y)
                     except:
                         c.setFillColor(WHITE)
                         c.setFont(FONT_SERIF_BOLD, 16)
-                        c.drawString(14*mm, ph-27*mm, prepared_by)
+                        c.drawString(14*mm, firm_y, prepared_by)
                 else:
                     fn_text  = prepared_by if is_wl else 'FinReportAI'
                     fn_color = WHITE if is_wl else GOLD
                     c.setFillColor(fn_color)
                     c.setFont(FONT_SERIF_BOLD, 16)
-                    c.drawString(14*mm, ph-27*mm, fn_text)
+                    c.drawString(14*mm, firm_y, fn_text)
 
-                # Tagline
                 if has_tag:
                     c.setFillColor(colors.HexColor('#9BB5D4'))
                     c.setFont(FONT_SANS, 8.5)
-                    c.drawString(14*mm, ph-36*mm, wl_tagline)
+                    c.drawString(14*mm, firm_y - 10*mm, wl_tagline)
+                    rule_y = firm_y - 20*mm   # double rule below tagline
+                else:
+                    rule_y = firm_y - 12*mm   # double rule just below firm name
 
-                # ── Gold accent rule ───────────────────────────────────────
+                c.setStrokeColor(colors.Color(14/255, 138/255, 122/255, 0.35))
+                c.setLineWidth(0.5)
+                c.line(14*mm, rule_y, pw - 8*mm, rule_y)
+                c.setStrokeColor(colors.Color(201/255, 168/255, 76/255, 0.55))
+                c.setLineWidth(0.8)
+                c.line(14*mm, rule_y - 1.5*mm, pw - 8*mm, rule_y - 1.5*mm)
+
+                # ── ZONE 2 — Content identifier (mid-upper) ───────────────
+                accent_y = 185*mm
                 c.setFillColor(GOLD)
-                c.rect(14*mm, ph*0.575, 18*mm, 2, fill=1, stroke=0)
+                c.rect(14*mm, accent_y, 20*mm, 2, fill=1, stroke=0)
 
-                # ── FINANCIAL REPORT pill ──────────────────────────────────
-                pill_y = ph*0.535
+                pill_y = accent_y - 16*mm   # ~169mm
                 c.setFillColor(TEAL)
-                c.roundRect(14*mm, pill_y, 42*mm, 7*mm, 1.5*mm, fill=1, stroke=0)
+                c.roundRect(14*mm, pill_y, 44*mm, 7*mm, 1.5*mm, fill=1, stroke=0)
                 c.setFillColor(WHITE)
                 c.setFont(FONT_SANS_BOLD, 6.5)
-                c.drawCentredString(14*mm + 21*mm, pill_y + 2.5*mm, 'FINANCIAL REPORT')
+                c.drawCentredString(14*mm + 22*mm, pill_y + 2.5*mm, 'FINANCIAL REPORT')
 
-                # ── "PREPARED FOR" label + Business name ──────────────────
-                bname_y = ph*0.478
+                # ── ZONE 3 — Business name block (dominant, lower-middle) ──
+                prep_y = pill_y - 20*mm     # ~149mm — PREPARED FOR label
                 c.setFillColor(GOLD)
-                c.setFont(FONT_SANS_BOLD, 6.5)
-                c.drawString(14*mm, bname_y + 14*mm, 'PREPARED FOR')
+                c.setFont(FONT_SANS_BOLD, 7)
+                c.drawString(14*mm, prep_y, 'PREPARED FOR')
+
+                # Business name: font size scales down for long names
+                bname_size = 30 if len(bname) <= 22 else (24 if len(bname) <= 32 else 19)
+                bname_y = prep_y - 14*mm    # ~135mm — dominant text baseline
                 c.setFillColor(WHITE)
-                c.setFont(FONT_SERIF_BOLD, 28)
+                c.setFont(FONT_SERIF_BOLD, bname_size)
                 c.drawString(14*mm, bname_y, bname)
 
-                # Gold rule under business name
+                underline_y = bname_y - 8*mm  # ~127mm — gold underline
                 c.setFillColor(GOLD)
-                c.rect(14*mm, bname_y - 5*mm, 22*mm, 2.5, fill=1, stroke=0)
+                c.rect(14*mm, underline_y, 26*mm, 2.5, fill=1, stroke=0)
 
-                # ── Period (more prominent) & currency ────────────────────
+                period_y = underline_y - 13*mm  # ~114mm — period text
                 c.setFillColor(colors.HexColor('#9BB5D4'))
-                c.setFont(FONT_SERIF_IT, 14)
-                c.drawString(14*mm, bname_y - 17*mm, period)
+                c.setFont(FONT_SERIF_IT, 13)
+                c.drawString(14*mm, period_y, period)
+
+                currency_y = period_y - 11*mm   # ~103mm — currency line
                 c.setFillColor(colors.HexColor('#5B7A9A'))
                 c.setFont(FONT_SANS, 8)
-                c.drawString(14*mm, bname_y - 27*mm, 'Currency: GBP (\xa3)')
+                c.drawString(14*mm, currency_y, 'Currency: GBP (\xa3)')
 
-                # ── Period type badge ──────────────────────────────────────
+                # ── ZONE 4 — Report type badge ────────────────────────────
                 period_lower = period.lower()
-                if 'q1' in period_lower or 'q2' in period_lower or 'q3' in period_lower or 'q4' in period_lower or 'quarter' in period_lower:
+                if any(q in period_lower for q in ['q1','q2','q3','q4','quarter']):
                     badge_txt = 'QUARTERLY REPORT'
                 elif 'annual' in period_lower or 'year' in period_lower or ('fy' in period_lower and len(period_lower) < 10):
                     badge_txt = 'ANNUAL REPORT'
@@ -574,27 +582,28 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                 else:
                     badge_txt = 'FINANCIAL REPORT'
                 badge_w = min(len(badge_txt) * 2 + 8, 46) * mm
+                badge_y = currency_y - 17*mm    # ~86mm
                 c.setFillColor(GOLD)
-                c.roundRect(14*mm, bname_y - 38*mm, badge_w, 6*mm, 1.2*mm, fill=1, stroke=0)
+                c.roundRect(14*mm, badge_y, badge_w, 6*mm, 1.2*mm, fill=1, stroke=0)
                 c.setFillColor(NAVY)
                 c.setFont(FONT_SANS_BOLD, 5.5)
-                c.drawCentredString(14*mm + badge_w/2, bname_y - 38*mm + 2*mm, badge_txt)
+                c.drawCentredString(14*mm + badge_w/2, badge_y + 2*mm, badge_txt)
 
-                # ── CONFIDENTIAL badge ─────────────────────────────────────
-                conf_y = ph*0.22
+                # ── ZONE 5 — CONFIDENTIAL badge ───────────────────────────
+                conf_y = badge_y - 20*mm        # ~66mm
                 c.setFillColor(GOLD)
                 c.roundRect(14*mm, conf_y, 30*mm, 7*mm, 2*mm, fill=1, stroke=0)
                 c.setFillColor(NAVY)
                 c.setFont(FONT_SANS_BOLD, 6)
                 c.drawCentredString(14*mm + 15*mm, conf_y + 2.5*mm, 'CONFIDENTIAL')
 
-                # ── Bottom rule & ref ──────────────────────────────────────
+                # ── ZONE 6 — Bottom rule & ref ────────────────────────────
                 c.setStrokeColor(colors.Color(14/255, 138/255, 122/255, 0.3))
                 c.setLineWidth(0.5)
-                c.line(0, 14*mm, pw, 14*mm)
+                c.line(0, 30*mm, pw, 30*mm)
                 c.setFillColor(colors.HexColor('#5B7A9A'))
                 c.setFont(FONT_SANS, 6)
-                c.drawString(14*mm, 8*mm,
+                c.drawString(14*mm, 24*mm,
                     f'Ref: {report_ref}   \xb7   Prepared by {prepared_by}   \xb7   Confidential')
 
         return [CoverPage(), PageBreak()]
@@ -3276,14 +3285,6 @@ def build_report(d):
                 self.setFillColor(colors.HexColor('#9BB5D4'))
                 self.drawRightString(A4[0] - 17*mm, A4[1] - 5.2*mm,
                                      f'{_canvas_period}  \xb7  {_canvas_prep_by}')
-                self.restoreState()
-                # ── Diagonal watermark ─────────────────────────────────
-                self.saveState()
-                self.setFillColor(colors.Color(15/255, 31/255, 61/255, 0.04))
-                self.translate(A4[0] / 2, A4[1] / 2)
-                self.rotate(45)
-                self.setFont(FONT_SERIF_BOLD, 80)
-                self.drawCentredString(0, 0, 'CONFIDENTIAL')
                 self.restoreState()
             # ── Footer rule ───────────────────────────────────────────
             self.saveState()
