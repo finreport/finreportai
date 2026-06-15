@@ -461,7 +461,7 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
 
         class CoverPage(_Flowable):
             def wrap(self, *args):
-                return 175*mm, 278*mm
+                return 175*mm, 257*mm
 
             def draw(self):
                 c   = self.canv
