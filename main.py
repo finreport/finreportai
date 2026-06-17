@@ -2341,14 +2341,23 @@ def peer_comparison_section(d, C_ACCENT):
 # ── Next 90 days action plan ──────────────────────────────────────────────────
 
 def next_90_days_section(d, C_ACCENT):
-    """3 numbered action cards from next_90_days field or fallback to recommendations."""
+    """3 monthly action cards from next_90_days field (timeline_90_days alias supported)."""
     try:
-        actions = d.get('timeline_90_days') or d.get('next_90_days')
+        import re as _re
+        actions = d.get('next_90_days') or d.get('timeline_90_days')
         if actions:
             if isinstance(actions, str):
-                try: actions = json.loads(actions)
-                except Exception: actions = [a.strip() for a in actions.split('|') if a.strip()]
-        # Only use next_90_days field — no fallback to recommendations to avoid duplicate content
+                try:
+                    actions = json.loads(actions)
+                except Exception:
+                    # Try pipe separator
+                    pipe_parts = [a.strip() for a in actions.split('|') if a.strip()]
+                    if len(pipe_parts) >= 2:
+                        actions = pipe_parts
+                    else:
+                        # Try splitting on "Month N:" pattern for timeline strings
+                        month_parts = [p.strip() for p in _re.split(r'(?=\bMonth\s+\d)', actions.strip()) if p.strip()]
+                        actions = month_parts if len(month_parts) >= 2 else [actions.strip()]
         if not actions or not isinstance(actions, list) or not any(str(a).strip() for a in actions):
             return []
         actions = [str(a).strip() for a in actions if str(a).strip()][:3]
@@ -2357,10 +2366,11 @@ def next_90_days_section(d, C_ACCENT):
 
         items = []
         for i, action in enumerate(actions, 1):
-            num_s = s(f'nd{i}num', fontName=FONT_SERIF_BOLD, fontSize=20, textColor=GOLD, leading=24, alignment=TA_CENTER)
+            month_lbl = f'Month {i}'
+            num_s = s(f'nd{i}num', fontName=FONT_SANS_BOLD, fontSize=7, textColor=GOLD, leading=10, alignment=TA_CENTER)
             txt_s = s(f'nd{i}txt', fontName=FONT_SANS, fontSize=8.5, textColor=DARK, leading=13)
             row = Table([[
-                Paragraph(str(i), num_s),
+                Paragraph(month_lbl, num_s),
                 Paragraph(action, txt_s),
             ]], colWidths=[14*mm, 161*mm])
             row.setStyle(TableStyle([
