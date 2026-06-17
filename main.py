@@ -2580,7 +2580,34 @@ def generate_canonical_narrative(d, canonical_revenue, canonical_net_profit, can
     if canonical_net_margin is not None: ol_parts.append(f'net margin {canonical_net_margin:.1f}%')
     one_liner = (f'{bname}: ' + ', '.join(ol_parts) + '.') if ol_parts else ''
 
-    return {'exec_summary': exec_summary, 'analysis_text': analysis_text, 'one_liner': one_liner}
+    # industry_context_text — canonical benchmark commentary
+    ic_parts = []
+    if canonical_gross_margin is not None and canonical_net_margin is not None:
+        ic_parts.append(
+            f'Based on reported figures, {bname} achieved a gross margin of '
+            f'{canonical_gross_margin:.1f}% and net margin of {canonical_net_margin:.1f}%'
+            + (f' for {period}.' if period else '.')
+        )
+        if canonical_gross_margin > 60:
+            ic_parts.append('Gross margin performance is strong relative to typical SME benchmarks of 40–60%.')
+        elif canonical_gross_margin >= 40:
+            ic_parts.append('Gross margin is within the typical SME benchmark range of 40–60%.')
+        else:
+            ic_parts.append('Gross margin is below the typical SME benchmark range of 40–60% and may warrant a review of direct costs.')
+        if canonical_net_margin > 15:
+            ic_parts.append('Net profitability is above average for the sector.')
+        elif canonical_net_margin >= 10:
+            ic_parts.append('Net margin is in line with sector benchmarks of 10–20%.')
+        else:
+            ic_parts.append('Net margin has room for improvement relative to sector benchmarks of 10–20%.')
+    industry_context_text = ' '.join(ic_parts)
+
+    return {
+        'exec_summary':       exec_summary,
+        'analysis_text':      analysis_text,
+        'one_liner':          one_liner,
+        'industry_context_text': industry_context_text,
+    }
 
 
 def build_report(d):
@@ -2944,7 +2971,7 @@ def build_report(d):
             text = _pat_pct.sub(_pct_sub, text)
             return text
 
-        for _nf in ('executive_summary', 'analysis', 'forecast_narrative', 'industry_context'):
+        for _nf in ('forecast_narrative',):
             _nv = d.get(_nf)
             if _nv and str(_nv).upper() not in ('NA', 'N/A', 'NONE', ''):
                 d[_nf] = _replace_in(str(_nv))
@@ -2973,7 +3000,7 @@ def build_report(d):
     forecast_rev     = clean(d.get('forecast_revenue'))
     forecast_profit  = clean(d.get('forecast_profit'))
     forecast_text    = str(d.get('forecast_narrative','')).strip()
-    industry_context = str(d.get('industry_context','')).strip()
+    industry_context = _narr['industry_context_text']
     accountant_notes = str(d.get('accountant_notes','')).strip()
     goals_raw        = d.get('client_targets')
     client_logo      = str(d.get('client_logo','')).strip()
@@ -2982,7 +3009,7 @@ def build_report(d):
     has_balsheet     = any(has_val(d.get(k)) for k in ['total_assets','total_liabilities','total_equity'])
     has_forecast     = bool(forecast_rev or forecast_profit or forecast_text)
     has_goals        = bool(goals_raw and str(goals_raw).strip() not in ('','NA','N/A','NONE','[]'))
-    has_industry     = bool(industry_context and industry_context.upper() not in ('NA','N/A','NONE',''))
+    has_industry     = bool(industry_context)
     has_notes        = bool(accountant_notes and accountant_notes.upper() not in ('NA','N/A','NONE',''))
     has_recs         = bool(recommendations and str(recommendations).strip() not in ('','NA','N/A','NONE','[]'))
     has_health       = health_score is not None
