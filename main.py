@@ -1602,7 +1602,7 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
         rows.append(item_row({'label':'Total Operating Expenses','values':opex_pvs,'total':opex_total}, bold=True, indent=False))
         teal_rows.append(len(rows)-1)
         if opex_tv is not None and total_rv is not None and total_rv != 0:
-            opex_pct = opex_tv / total_rv * 100
+            opex_pct = opex_tv / total_rv   # decimal (fmtp handles 0-1 scale)
             rows.append([label('OpEx % of Revenue', sub=True)] + [td('—')]*ncols + [td(fmtp(opex_pct))] + [td('—')])
         rows.append(blank()); blank_rows.append(len(rows)-1)
 
@@ -1616,7 +1616,7 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
         for i in range(ncols):
             _r = rev_pvs[i] if i < len(rev_pvs) else 0
             _n = np_pvs[i]  if i < len(np_pvs)  else 0
-            nm_pvs.append(fmtp(_n / _r * 100) if _r > 0 else '—')
+            nm_pvs.append(fmtp(_n / _r) if _r > 0 else '—')   # fmtp handles 0-1 decimal
         rows.append([label('Net Margin %', sub=True)] + [td(x) for x in nm_pvs] + [td(fmtp(d.get('net_margin')))] + [td('—')])
 
     # Data sources footnote
@@ -1813,8 +1813,8 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
     rows.append(np_row)
     net_idx=len(rows)-1
     if has_val(d.get('net_margin')):
-        c_nm_pvs = [fmtp(c_np_pvs[i] / c_rev_pvs[i] * 100) if i < len(c_rev_pvs) and c_rev_pvs[i] > 0 else '—'
-                    for i in range(ncols)]
+        c_nm_pvs = [fmtp(c_np_pvs[i] / c_rev_pvs[i]) if i < len(c_rev_pvs) and c_rev_pvs[i] > 0 else '—'
+                    for i in range(ncols)]   # fmtp handles 0-1 decimal
         rows.append([label('Net Margin %',sub=True)]+[td(x) for x in c_nm_pvs]+[td(fmtp(d.get('net_margin'))),td(fmtp(d.get('prev_net_margin'))),td('—')])
 
     # Data sources footnote
@@ -2605,6 +2605,17 @@ def build_report(d):
             periods      = [normalise_period_label(p) for p in periods_full]
             periods_keys = [p.lower().replace(' ', '').replace('-', '') for p in periods_full]
 
+    # COGS value validation: if a period value exceeds the item total by >10%
+    # it is almost certainly a misrouted revenue figure — zero it out
+    for _it in cogs_items:
+        _it_tot = clean(_it.get('total'))
+        if _it_tot is not None and _it_tot > 0:
+            _vals = _it.get('values', [])
+            for _vi in range(len(_vals)):
+                _cv = clean(_vals[_vi])
+                if _cv is not None and _cv > _it_tot * 1.1:
+                    _it['values'][_vi] = 0
+
     # Store original labels before any modification (for hallucination guard)
     _all_orig_labels = set()
     for _it_orig in revenue_items + cogs_items + opex_items:
@@ -2722,6 +2733,38 @@ def build_report(d):
     # ── Step 7: Update each item's .total = sum of its values ─────────────────
     for _it in revenue_items + cogs_items + opex_items:
         _it['total'] = sum(clean(v) or 0 for v in _it.get('values', []))
+
+    # ── Fix 3: Correct misquoted £ figures in narrative fields ────────────────
+    # Claude generates narrative before canonical recalculation, so its inline
+    # £ amounts may reference its own (wrong) totals. Replace any £ figure
+    # that is within 50% of a canonical value but differs by more than 5%.
+    _fig_pat = re.compile(r'£([\d,]+)')
+
+    def _narrative_replace(text):
+        if not text or str(text).upper() in ('NA', 'N/A', 'NONE', ''):
+            return text
+        def _sub(m):
+            try:
+                amt = float(m.group(1).replace(',', ''))
+            except Exception:
+                return m.group(0)
+            if canonical_revenue and canonical_revenue > 0:
+                if 0.5 * canonical_revenue <= amt <= 2.0 * canonical_revenue:
+                    if abs(amt - canonical_revenue) / canonical_revenue > 0.05:
+                        return fmt(canonical_revenue)
+                    return fmt(canonical_revenue)  # snap to canonical even if close
+            if canonical_net_profit and canonical_net_profit > 0:
+                if 0.5 * canonical_net_profit <= amt <= 2.0 * canonical_net_profit:
+                    if abs(amt - canonical_net_profit) / canonical_net_profit > 0.05:
+                        return fmt(canonical_net_profit)
+                    return fmt(canonical_net_profit)
+            return m.group(0)
+        return _fig_pat.sub(_sub, str(text))
+
+    for _nf in ('executive_summary', 'analysis', 'forecast_narrative', 'industry_context'):
+        _nv = d.get(_nf)
+        if _nv and str(_nv).upper() not in ('NA', 'N/A', 'NONE', ''):
+            d[_nf] = _narrative_replace(str(_nv))
 
     period_rev = [d.get('revenue_'+k) for k in periods_keys]
     opex_with_totals = [it for it in opex_items if has_val(it.get('total'))]
