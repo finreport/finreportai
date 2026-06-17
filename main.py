@@ -2631,6 +2631,46 @@ def build_report(d):
 
     print(f"[periods_full] {periods_full}", flush=True)
 
+    # ── Sort periods chronologically, then reorder item values to match ───────
+    _MONTH_ORD = {
+        'january': 1, 'february': 2, 'march': 3, 'april': 4,
+        'may': 5, 'june': 6, 'july': 7, 'august': 8,
+        'september': 9, 'october': 10, 'november': 11, 'december': 12,
+        'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
+        'jun': 6, 'jul': 7, 'aug': 8,
+        'sep': 9, 'sept': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+    }
+
+    def _period_sort_key(label):
+        lbl = label.lower().strip()
+        _mo = re.search(
+            r'\b(january|february|march|april|may|june|july|august|'
+            r'september|october|november|december|'
+            r'jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\b', lbl)
+        if _mo:
+            return (0, _MONTH_ORD.get(_mo.group(1), 99), label)
+        _qm = re.match(r'q(\d)', lbl)
+        if _qm:
+            return (1, int(_qm.group(1)), label)
+        _pm = re.search(r'period\s*(\d+)', lbl)
+        if _pm:
+            return (2, int(_pm.group(1)), label)
+        return (3, 0, label)
+
+    _sorted_pairs = sorted(enumerate(periods_full), key=lambda x: _period_sort_key(x[1]))
+    _new_order    = [i for i, _ in _sorted_pairs]
+    periods_full  = [p for _, p in _sorted_pairs]
+    periods       = [normalise_period_label(p) for p in periods_full]
+    periods_keys  = [p.lower().replace(' ', '').replace('-', '') for p in periods_full]
+
+    # Reorder values arrays in every item to match the new period order
+    for _it in revenue_items + cogs_items + opex_items:
+        _vals = _it.get('values', [])
+        if isinstance(_vals, list) and len(_vals) > 1:
+            _it['values'] = [_vals[i] if i < len(_vals) else 0 for i in _new_order]
+
+    print(f"[periods_full sorted] {periods_full}", flush=True)
+
     # COGS value validation: if a period value exceeds the item total by >10%
     # it is almost certainly a misrouted revenue figure — zero it out
     for _it in cogs_items:
