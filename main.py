@@ -1589,10 +1589,12 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
         ]
         opex_tv = clean(opex_total)
         total_rv = clean(d.get('total_revenue'))
-        opex_lbl = Paragraph('Total Operating Expenses', ST_BOLD)
         rows.append(blank()); blank_rows.append(len(rows)-1)
-        rows.append(item_row({'label':'Total Operating Expenses','values':opex_period_vals,'total':opex_total}, bold=True, indent=False, lbl_override=opex_lbl))
+        rows.append(item_row({'label':'Total Operating Expenses','values':opex_period_vals,'total':opex_total}, bold=True, indent=False))
         teal_rows.append(len(rows)-1)
+        if opex_tv is not None and total_rv is not None and total_rv != 0:
+            opex_pct = opex_tv / total_rv * 100
+            rows.append([label('OpEx % of Revenue', sub=True)] + [td('—')]*ncols + [td(fmtp(opex_pct))] + [td('—')])
         rows.append(blank()); blank_rows.append(len(rows)-1)
 
     np_row = {'label':'NET PROFIT','values':[d.get('net_profit_'+k) for k in periods_keys] if show_periods else [],'total':d.get('net_profit')}
