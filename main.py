@@ -263,6 +263,7 @@ def exp_card(lbl, val, pct_rev):
     return t
 
 def comparison_kpi_card(label, current_val, prev_val, is_pct=False):
+    def _p100(v): return None if v is None else (v if v > 1 else v * 100)
     def fv(v):
         if not has_val(v): return 'N/A'
         return fmtp(v) if is_pct else fmt(v)
@@ -270,12 +271,20 @@ def comparison_kpi_card(label, current_val, prev_val, is_pct=False):
     prev_display = fv(prev_val)
     try:
         cv = clean(current_val); pv = clean(prev_val)
-        if cv is not None and pv is not None and pv != 0:
-            growth = ((cv - pv) / abs(pv)) * 100
-            pos = growth >= 0
-            arrow = '▲' if pos else '▼'
-            growth_str = f"{arrow} {abs(growth):.1f}%"
-            gc = GREEN_TEXT if pos else RED_TEXT
+        if cv is not None and pv is not None:
+            if is_pct:
+                cv2 = _p100(cv); pv2 = _p100(pv)
+                diff = cv2 - pv2
+                pos  = diff >= 0
+                growth_str = f"{'▲' if pos else '▼'} {abs(diff):.1f}pp"
+                gc = GREEN_TEXT if pos else RED_TEXT
+            elif pv != 0:
+                growth = ((cv - pv) / abs(pv)) * 100
+                pos = growth >= 0
+                growth_str = f"{'▲' if pos else '▼'} {abs(growth):.1f}%"
+                gc = GREEN_TEXT if pos else RED_TEXT
+            else:
+                growth_str = '—'; gc = GRAY
         else:
             growth_str = '—'; gc = GRAY
     except:
@@ -827,24 +836,22 @@ def traffic_light_dashboard(d, C_ACCENT, period_revs=None):
                 else:
                     cards.append(tl_card('Revenue Trend', f'≈ {pct:+.1f}%', 'Stable', AMBER_TEXT))
 
-        # Gross Margin vs 60% benchmark
+        # Gross Margin vs 60% benchmark — canonical value is always 0-100 scale
         gm = clean(d.get('gross_margin'))
         if gm is not None:
-            gm100 = gm if gm > 1 else gm * 100
-            if gm100 >= 60:
+            if gm >= 60:
                 cards.append(tl_card('Gross Margin', fmtp(gm), 'Strong', GREEN_TEXT))
-            elif gm100 >= 40:
+            elif gm >= 40:
                 cards.append(tl_card('Gross Margin', fmtp(gm), 'Moderate', AMBER_TEXT))
             else:
                 cards.append(tl_card('Gross Margin', fmtp(gm), 'Low', RED_TEXT))
 
-        # Net Margin vs 10% benchmark
+        # Net Margin vs 10% benchmark — canonical value is always 0-100 scale
         nm = clean(d.get('net_margin'))
         if nm is not None:
-            nm100 = nm if nm > 1 else nm * 100
-            if nm100 >= 10:
+            if nm >= 10:
                 cards.append(tl_card('Net Margin', fmtp(nm), 'Healthy', GREEN_TEXT))
-            elif nm100 >= 5:
+            elif nm >= 5:
                 cards.append(tl_card('Net Margin', fmtp(nm), 'Watch', AMBER_TEXT))
             else:
                 cards.append(tl_card('Net Margin', fmtp(nm), 'Low', RED_TEXT))
@@ -1849,12 +1856,14 @@ def comparison_executive_box(d, C_ACCENT):
         prev_rev = clean(d.get('prev_total_revenue'))
         curr_np  = clean(d.get('net_profit'))
         prev_np  = clean(d.get('prev_net_profit'))
-        curr_gm  = clean(d.get('gross_margin'))
-        prev_gm  = clean(d.get('prev_gross_margin'))
-        curr_nm  = clean(d.get('net_margin'))
-        prev_nm  = clean(d.get('prev_net_margin'))
         period   = str(d.get('period', 'current period'))
         prev_per = str(d.get('previous_period', 'prior period'))
+        # Normalise margins to 0-100 scale for arithmetic (curr is canonical; prev may be decimal)
+        def _p100(v): return None if v is None else (v if v > 1 else v * 100)
+        curr_gm = _p100(clean(d.get('gross_margin')))
+        prev_gm = _p100(clean(d.get('prev_gross_margin')))
+        curr_nm = _p100(clean(d.get('net_margin')))
+        prev_nm = _p100(clean(d.get('prev_net_margin')))
 
         parts = []
         metrics_up = 0; metrics_down = 0
@@ -1939,11 +1948,22 @@ def comparison_summary_box(d, C_ACCENT):
             cv = clean(curr_v); pv = clean(prev_v)
             fn = FONT_SANS_BOLD if bold else FONT_SANS
             disp = (fmtp if is_pct else fmt)(cv) if cv is not None else '—'
-            if cv is not None and pv is not None and pv != 0:
-                chg = ((cv - pv) / abs(pv)) * 100
-                arrow = '▲' if chg >= 0 else '▼'
-                col = GREEN_TEXT if chg >= 0 else RED_TEXT
-                disp = f"{disp}  {arrow}{abs(chg):.1f}%"
+            if cv is not None and pv is not None:
+                if is_pct:
+                    # Normalise both to 0-100 scale before computing pp change
+                    cv2 = cv if cv > 1 else cv * 100
+                    pv2 = pv if pv > 1 else pv * 100
+                    diff = cv2 - pv2
+                    arrow = '▲' if diff >= 0 else '▼'
+                    col = GREEN_TEXT if diff >= 0 else RED_TEXT
+                    disp = f"{disp}  {arrow}{abs(diff):.1f}pp"
+                elif pv != 0:
+                    chg = ((cv - pv) / abs(pv)) * 100
+                    arrow = '▲' if chg >= 0 else '▼'
+                    col = GREEN_TEXT if chg >= 0 else RED_TEXT
+                    disp = f"{disp}  {arrow}{abs(chg):.1f}%"
+                else:
+                    col = DARK
             else:
                 col = DARK
             return Paragraph(disp, s(f'csbc_{id(curr_v)}', fontName=fn, fontSize=8,
@@ -1993,10 +2013,11 @@ def comparison_summary_box(d, C_ACCENT):
 def margin_comparison_table(d, C_ACCENT):
     """Margin metrics: Metric | Previous | Current | Change | Trend."""
     try:
-        curr_gm   = clean(d.get('gross_margin'))
-        prev_gm   = clean(d.get('prev_gross_margin'))
-        curr_nm   = clean(d.get('net_margin'))
-        prev_nm   = clean(d.get('prev_net_margin'))
+        def _p100(v): return None if v is None else (v if v > 1 else v * 100)
+        curr_gm   = _p100(clean(d.get('gross_margin')))
+        prev_gm   = _p100(clean(d.get('prev_gross_margin')))
+        curr_nm   = _p100(clean(d.get('net_margin')))
+        prev_nm   = _p100(clean(d.get('prev_net_margin')))
         curr_rev  = clean(d.get('total_revenue'))
         prev_rev  = clean(d.get('prev_total_revenue'))
         curr_cogs = clean(d.get('total_cogs'))
@@ -2300,13 +2321,11 @@ def peer_comparison_section(d, C_ACCENT):
                 sector_name, bench_gm, bench_nm = name, bgm, bnm
                 break
 
-        gm = clean(d.get('gross_margin'))
-        nm = clean(d.get('net_margin'))
-        if gm is None and nm is None:
+        # Canonical gross_margin and net_margin are always 0-100 scale
+        gm100 = clean(d.get('gross_margin'))
+        nm100 = clean(d.get('net_margin'))
+        if gm100 is None and nm100 is None:
             return None
-
-        gm100 = (gm if gm > 1 else gm * 100) if gm is not None else None
-        nm100 = (nm if nm > 1 else nm * 100) if nm is not None else None
 
         def _status(actual, benchmark):
             diff = actual - benchmark
