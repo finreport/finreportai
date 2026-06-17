@@ -1446,7 +1446,8 @@ def breakeven_section(d, C_ACCENT):
         gm_v   = clean(d.get('gross_margin'))
         if opex_v is None or gm_v is None or opex_v <= 0:
             return None
-        gm_dec = gm_v / 100 if gm_v > 1 else gm_v
+        # gross_margin is stored as 0-100 scale; divide by 100 for decimal ratio
+        gm_dec = gm_v / 100
         if gm_dec <= 0:
             return None
         be_rev = opex_v / gm_dec
@@ -2504,6 +2505,85 @@ def intro_letter(d, prepared_by, is_wl, wl_contact, C_PRIMARY):
 
 # ── Build report ──────────────────────────────────────────────────────────────
 
+def generate_canonical_narrative(d, canonical_revenue, canonical_net_profit, canonical_gross_profit,
+                                  canonical_gross_margin, canonical_net_margin, canonical_cogs,
+                                  canonical_opex, periods_full):
+    """Return narrative paragraphs built entirely from canonical values — no Claude figures."""
+    bname   = str(d.get('business_name', 'The business')).strip()
+    period  = str(d.get('period', '')).strip()
+    n_per   = len(periods_full)
+    period_keys = [p.lower().replace(' ', '').replace('-', '') for p in periods_full]
+    per_rev = [clean(d.get('revenue_' + k)) for k in period_keys]
+    per_rev_vals = [v for v in per_rev if v is not None]
+
+    # Tone from net margin
+    if canonical_net_margin is not None:
+        tone = 'strong' if canonical_net_margin >= 15 else ('mixed' if canonical_net_margin >= 5 else 'challenging')
+    else:
+        tone = 'varied'
+
+    # Sentence 1
+    s1 = f'{bname} delivered {tone} financial results for {period}.' if period else f'{bname} delivered {tone} financial results.'
+
+    # Sentence 2 — key figures
+    kf = []
+    if canonical_revenue      is not None: kf.append(f'total revenue of {fmt(canonical_revenue)}')
+    if canonical_gross_margin is not None: kf.append(f'a gross margin of {canonical_gross_margin:.1f}%')
+    if canonical_net_profit   is not None: kf.append(f'net profit of {fmt(canonical_net_profit)}')
+    if canonical_net_margin   is not None: kf.append(f'a net margin of {canonical_net_margin:.1f}%')
+    s2 = ''
+    if kf:
+        if len(kf) == 1:
+            s2 = f'The period recorded {kf[0]}.'
+        else:
+            s2 = 'The period recorded ' + ', '.join(kf[:-1]) + f', and {kf[-1]}.'
+
+    # Sentence 3 — per-period revenue trend
+    s3 = ''
+    if len(per_rev_vals) >= 2:
+        if per_rev_vals[-1] > per_rev_vals[0]:
+            s3 = f'Revenue showed an upward trend across the {n_per} period{"s" if n_per != 1 else ""} reported.'
+        elif per_rev_vals[-1] < per_rev_vals[0]:
+            s3 = f'Revenue declined across the {n_per} period{"s" if n_per != 1 else ""} reported.'
+        else:
+            s3 = f'Revenue was broadly stable across the {n_per} period{"s" if n_per != 1 else ""} reported.'
+
+    exec_summary = ' '.join(filter(None, [s1, s2, s3]))
+
+    # analysis_text — cost structure
+    rev = canonical_revenue or 0
+    a_parts = []
+    if canonical_cogs is not None and rev > 0:
+        a_parts.append(f'cost of goods sold represented {canonical_cogs / rev * 100:.1f}% of revenue ({fmt(canonical_cogs)})')
+    if canonical_opex is not None and rev > 0:
+        a_parts.append(f'operating expenses accounted for {canonical_opex / rev * 100:.1f}% of revenue ({fmt(canonical_opex)})')
+    analysis_text = ''
+    if a_parts:
+        analysis_text = 'For this period, ' + ' and '.join(a_parts) + '.'
+        if canonical_net_margin is not None:
+            if canonical_net_margin > 0:
+                analysis_text += (f' The resulting net margin of {canonical_net_margin:.1f}% means the business'
+                                  f' retained {canonical_net_margin:.1f}p in every £1 of revenue after all costs.')
+            else:
+                analysis_text += (f' The resulting net margin of {canonical_net_margin:.1f}% indicates total costs'
+                                  f' exceeded revenue for this period.')
+    if n_per > 1 and len(per_rev_vals) == n_per:
+        peak_i   = per_rev.index(max(per_rev_vals))
+        trough_i = per_rev.index(min(per_rev_vals))
+        if peak_i != trough_i and peak_i < n_per and trough_i < n_per:
+            analysis_text += (f' Revenue peaked in {periods_full[peak_i]} ({fmt(per_rev_vals[peak_i])})'
+                              f' and was lowest in {periods_full[trough_i]} ({fmt(per_rev_vals[trough_i])}).')
+
+    # one_liner for callout box
+    ol_parts = []
+    if canonical_revenue    is not None: ol_parts.append(f'revenue {fmt(canonical_revenue)}')
+    if canonical_net_profit is not None: ol_parts.append(f'net profit {fmt(canonical_net_profit)}')
+    if canonical_net_margin is not None: ol_parts.append(f'net margin {canonical_net_margin:.1f}%')
+    one_liner = (f'{bname}: ' + ', '.join(ol_parts) + '.') if ol_parts else ''
+
+    return {'exec_summary': exec_summary, 'analysis_text': analysis_text, 'one_liner': one_liner}
+
+
 def build_report(d):
     buf=io.BytesIO()
 
@@ -2872,6 +2952,12 @@ def build_report(d):
 
     sync_narrative_text(d)
 
+    _narr = generate_canonical_narrative(
+        d, canonical_revenue, canonical_net_profit, canonical_gross_profit,
+        canonical_gross_margin, canonical_net_margin, canonical_cogs, canonical_opex,
+        periods_full
+    )
+
     # ── Step 7: Update each item's .total = sum of its values ─────────────────
     for _it in revenue_items + cogs_items + opex_items:
         _it['total'] = sum(clean(v) or 0 for v in _it.get('values', []))
@@ -2883,7 +2969,7 @@ def build_report(d):
     # ── New field extraction ──────────────────────────────────────────────────
     health_score          = clean(d.get('health_score'))
     recommendations       = d.get('strategic_recommendations')
-    plain_english_summary = str(d.get('plain_english_summary','')).strip()
+    plain_english_summary = _narr['one_liner']
     forecast_period  = str(d.get('forecast_period','')).strip()
     forecast_rev     = clean(d.get('forecast_revenue'))
     forecast_profit  = clean(d.get('forecast_profit'))
@@ -2901,7 +2987,7 @@ def build_report(d):
     has_notes        = bool(accountant_notes and accountant_notes.upper() not in ('NA','N/A','NONE',''))
     has_recs         = bool(recommendations and str(recommendations).strip() not in ('','NA','N/A','NONE','[]'))
     has_health       = health_score is not None
-    has_plain_summary = bool(plain_english_summary and plain_english_summary.upper() not in ('NA','N/A','NONE',''))
+    has_plain_summary = bool(plain_english_summary)
 
     # Per-client accent colour (overrides firm accent if provided)
     def safe_colour(hex_val, fallback):
@@ -2934,7 +3020,7 @@ def build_report(d):
         toc_sections.append('Goals & Targets')
     if has_industry:
         toc_sections.append('Industry Context')
-    if d.get('analysis'):
+    if _narr['analysis_text']:
         toc_sections.append('Key Trends & Analysis')
     if has_recs:
         toc_sections.append('Recommendations')
@@ -3017,51 +3103,11 @@ def build_report(d):
             verdict_txt = '<b>Overall:</b> This period requires management attention across several key metrics.'
         story.append(Paragraph(verdict_txt, s('verdict', fontName=FONT_SANS, fontSize=9, textColor=DARK, leading=13)))
         story.append(Spacer(1,2*mm))
-    # ── Canonical summary paragraph (always uses verified figures) ────────────
-    try:
-        _bname  = str(d.get('business_name', 'The business')).strip()
-        _period = str(d.get('period', '')).strip()
-        _cr     = canonical_revenue
-        _cgm    = canonical_gross_margin
-        _cnp    = canonical_net_profit
-        _cnm    = canonical_net_margin
-        if _cr is not None and _cnm is not None:
-            if _cnm >= 15:
-                _tone = 'strong'
-            elif _cnm >= 5:
-                _tone = 'mixed'
-            else:
-                _tone = 'challenging'
-            _canon_parts = [f'{_bname} delivered {_tone} results']
-            if _period:
-                _canon_parts[0] += f' for {_period}'
-            _canon_parts[0] += '.'
-            _detail = f'Total revenue was {fmt(_cr)}'
-            if _cgm is not None:
-                _detail += f', gross margin {_cgm:.1f}%'
-            if _cnp is not None:
-                _detail += f', net profit {fmt(_cnp)}'
-            _detail += f' representing a {_cnm:.1f}% net margin.'
-            _canon_summary = ' '.join(_canon_parts) + ' ' + _detail
-            story.append(Paragraph(
-                _canon_summary,
-                s('csumm', fontName=FONT_SANS_BOLD, fontSize=9.5, textColor=NAVY, leading=15)
-            ))
-            story.append(Spacer(1, 3*mm))
-    except Exception:
-        pass
-    # ── Analyst Commentary (Claude's narrative — supplementary context) ────────
-    _exec_text = str(d.get('executive_summary', '')).strip()
-    if _exec_text and _exec_text.upper() not in ('NA', 'N/A', 'NONE', ''):
-        story.append(Paragraph(
-            'Analyst Commentary',
-            s('aclbl', fontName=FONT_SANS_BOLD, fontSize=7.5, textColor=GRAY, leading=11)
-        ))
-        story.append(Spacer(1, 1*mm))
-        story.append(Paragraph(
-            _exec_text,
-            s('acbody', fontName=FONT_SERIF_IT, fontSize=8.5, textColor=colors.HexColor('#6B7280'), leading=14)
-        ))
+    # ── Executive Summary — canonical figures only ────────────────────────────
+    if _narr['exec_summary']:
+        story.append(Paragraph(_narr['exec_summary'],
+                               s('csumm', fontName=FONT_SANS_BOLD, fontSize=9.5, textColor=NAVY, leading=15)))
+        story.append(Spacer(1, 3*mm))
     # Confidence indicator (item 6)
     try:
         _n_per = len([v for v in period_rev if has_val(v)]) or max(len(periods), 1)
@@ -3447,10 +3493,10 @@ def build_report(d):
         ]))
 
     # ── Key Trends ────────────────────────────────────────────────────────────
-    if d.get('analysis'):
+    if _narr['analysis_text']:
         story.append(KeepTogether([
-            section_header('Key Trends & Analysis', C_ACCENT),Spacer(1,3*mm),
-            Paragraph(str(d.get('analysis')),ST_BODY),
+            section_header('Key Trends & Analysis', C_ACCENT), Spacer(1,3*mm),
+            Paragraph(_narr['analysis_text'], ST_BODY),
             Spacer(1,3*mm),
         ]))
 
