@@ -1,5 +1,5 @@
 from flask import Flask, request, send_file
-import io, json
+import io, json, re
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import mm
@@ -2523,36 +2523,84 @@ def build_report(d):
     prev_opex_items    = get_list(d, 'prev_opex_items')
     is_comparison = has_val(d.get('prev_total_revenue')) and str(d.get('prev_total_revenue','')).upper() not in ('NA','N/A','NONE','')
 
-    # ── Auto-calculate per-period totals if Claude didn't supply them ─────────
+    # ── Category normalisation: reclassify misplaced line items ──────────────
+    _COGS_KW = {'inventory','stock','parts','components','cost','materials',
+                'beans','supplies','packaging'}
+    _OPEX_KW = {'utilities','power','insurance','rent','wages','salary',
+                'advertising','marketing','software','subscriptions','misc','professional'}
+
+    def _item_kws(it):
+        return set(re.sub(r'[^a-z ]', ' ', str(it.get('label','')).lower()).split())
+
+    _new_rev, _bump_cogs = [], []
+    for _it in revenue_items:
+        (_bump_cogs if _item_kws(_it) & _COGS_KW else _new_rev).append(_it)
+    revenue_items = _new_rev
+    cogs_items = cogs_items + _bump_cogs
+
+    _new_cogs, _bump_opex = [], []
+    for _it in cogs_items:
+        (_bump_opex if _item_kws(_it) & _OPEX_KW else _new_cogs).append(_it)
+    cogs_items = _new_cogs
+    opex_items = opex_items + _bump_opex
+
+    # ── Bottom-up totals: recalculate from items, override Claude's values ────
+    def _items_total(items):
+        tot = sum(clean(it.get('total')) or 0 for it in items)
+        return tot if tot > 0 else None
+
+    _bt_rev  = _items_total(revenue_items)
+    _bt_cogs = _items_total(cogs_items)
+    _bt_opex = _items_total(opex_items)
+    if _bt_rev  is not None: d['total_revenue'] = _bt_rev
+    if _bt_cogs is not None: d['total_cogs']    = _bt_cogs
+    if _bt_opex is not None: d['total_opex']    = _bt_opex
+    _tr2 = clean(d.get('total_revenue'))
+    _tc2 = clean(d.get('total_cogs'))  or 0
+    _to2 = clean(d.get('total_opex'))  or 0
+    if _tr2 is not None:
+        d['gross_profit'] = _tr2 - _tc2
+        d['net_profit']   = _tr2 - _tc2 - _to2
+
+    # ── Per-period recalculation: validate Claude values against item sums ────
     for i, k in enumerate(periods_keys):
-        # Revenue per period
-        if not has_val(d.get('revenue_'+k)) and revenue_items:
-            total = sum(clean(it.get('values',[None]*10)[i]) or 0 for it in revenue_items if i < len(it.get('values',[])))
-            if total > 0: d['revenue_'+k] = total
+        # Revenue per period — recalculate from items; override Claude if >1% off
+        if revenue_items:
+            _calc = sum(clean(it.get('values',[None]*10)[i]) or 0 for it in revenue_items if i < len(it.get('values',[])))
+            if _calc > 0:
+                _claude_v = clean(d.get('revenue_'+k))
+                if _claude_v is None or abs(_claude_v - _calc) / max(abs(_claude_v), 1) > 0.01:
+                    d['revenue_'+k] = _calc
         # COGS per period
-        if not has_val(d.get('cogs_'+k)) and cogs_items:
-            total = sum(clean(it.get('values',[None]*10)[i]) or 0 for it in cogs_items if i < len(it.get('values',[])))
-            if total > 0: d['cogs_'+k] = total
-        # Gross profit per period
-        if not has_val(d.get('gross_profit_'+k)):
-            rev_k = clean(d.get('revenue_'+k))
-            cog_k = clean(d.get('cogs_'+k)) or sum(clean(it.get('values',[None]*10)[i]) or 0 for it in cogs_items if i < len(it.get('values',[])))
-            if rev_k: d['gross_profit_'+k] = rev_k - cog_k
+        if cogs_items:
+            _calc = sum(clean(it.get('values',[None]*10)[i]) or 0 for it in cogs_items if i < len(it.get('values',[])))
+            if _calc > 0:
+                _claude_v = clean(d.get('cogs_'+k))
+                if _claude_v is None or abs(_claude_v - _calc) / max(abs(_claude_v), 1) > 0.01:
+                    d['cogs_'+k] = _calc
+        # Gross profit per period — always derive from updated revenue/cogs
+        _rev_k = clean(d.get('revenue_'+k))
+        _cog_k = clean(d.get('cogs_'+k)) or 0
+        if _rev_k is not None:
+            d['gross_profit_'+k] = _rev_k - _cog_k
         # OpEx per period
-        if not has_val(d.get('opex_'+k)) and opex_items:
-            total = sum(clean(it.get('values',[None]*10)[i]) or 0 for it in opex_items if i < len(it.get('values',[])))
-            if total > 0: d['opex_'+k] = total
-        # Net profit per period
-        if not has_val(d.get('net_profit_'+k)):
-            gp_k   = clean(d.get('gross_profit_'+k))
-            opex_k = clean(d.get('opex_'+k)) or sum(clean(it.get('values',[None]*10)[i]) or 0 for it in opex_items if i < len(it.get('values',[])))
-            if gp_k is not None: d['net_profit_'+k] = gp_k - opex_k
-        # Net margin per period
+        if opex_items:
+            _calc = sum(clean(it.get('values',[None]*10)[i]) or 0 for it in opex_items if i < len(it.get('values',[])))
+            if _calc > 0:
+                _claude_v = clean(d.get('opex_'+k))
+                if _claude_v is None or abs(_claude_v - _calc) / max(abs(_claude_v), 1) > 0.01:
+                    d['opex_'+k] = _calc
+        # Net profit per period — always derive from gross_profit - opex
+        _gp_k   = clean(d.get('gross_profit_'+k))
+        _opex_k = clean(d.get('opex_'+k)) or 0
+        if _gp_k is not None:
+            d['net_profit_'+k] = _gp_k - _opex_k
+        # Net margin per period — keep Claude's value if present, else derive
         if not has_val(d.get('net_margin_'+k)):
-            np_k  = clean(d.get('net_profit_'+k))
-            rev_k = clean(d.get('revenue_'+k))
-            if np_k is not None and rev_k and rev_k > 0:
-                d['net_margin_'+k] = (np_k / rev_k) * 100
+            _np_k  = clean(d.get('net_profit_'+k))
+            _rev_k = clean(d.get('revenue_'+k))
+            if _np_k is not None and _rev_k and _rev_k > 0:
+                d['net_margin_'+k] = (_np_k / _rev_k) * 100
 
     period_rev = [d.get('revenue_'+k) for k in periods_keys]
     opex_with_totals = [it for it in opex_items if has_val(it.get('total'))]
@@ -2618,8 +2666,30 @@ def build_report(d):
         toc_sections.append('Recommendations')
     if has_forecast:
         toc_sections.append('Forecast')
+    # ── Matrix cross-foot validation ─────────────────────────────────────────
+    _crossfoot_fail = False
+    for _k in periods_keys:
+        _r = clean(d.get('revenue_' + _k)) or 0
+        _c = clean(d.get('cogs_' + _k))    or 0
+        _o = clean(d.get('opex_' + _k))    or 0
+        _n = clean(d.get('net_profit_' + _k))
+        if _n is not None and abs(_r - _c - _o - _n) > 1:
+            _crossfoot_fail = True
+            break
+    if not _crossfoot_fail:
+        for _it in revenue_items + cogs_items + opex_items:
+            _it_total = clean(_it.get('total'))
+            _it_vals  = _it.get('values', [])
+            if _it_total is not None and _it_vals:
+                _it_sum = sum(clean(v) or 0 for v in _it_vals)
+                if _it_sum > 0 and abs(_it_total - _it_sum) > 1:
+                    _crossfoot_fail = True
+                    break
+
     raw_flags = str(d.get('flags',''))
     flag_lines = [f.strip() for f in raw_flags.replace('FLAGSEP','\n').split('\n') if '|' in f and len(f.strip())>3]
+    if _crossfoot_fail:
+        flag_lines.insert(0, 'INFO|Data Verification Notice|Some figures have been recalculated to ensure mathematical accuracy. Please verify source data before client distribution.')
     if flag_lines:
         toc_sections.append('Flags & Items to Watch')
     if has_notes:
