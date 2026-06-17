@@ -907,7 +907,7 @@ def traffic_light_dashboard(d, C_ACCENT, period_revs=None):
 def management_summary_box(d, C_ACCENT):
     """KEY TAKEAWAYS box with first 3 recommendations as bullets."""
     try:
-        recs = d.get('key_takeaways') or d.get('recommendations')
+        recs = d.get('key_takeaways')
         if not recs:
             return None
         if isinstance(recs, str):
@@ -2344,7 +2344,7 @@ def next_90_days_section(d, C_ACCENT):
     """3 monthly action cards from next_90_days field (timeline_90_days alias supported)."""
     try:
         import re as _re
-        actions = d.get('next_90_days') or d.get('timeline_90_days')
+        actions = d.get('timeline_90_days')
         if actions:
             if isinstance(actions, str):
                 try:
@@ -2558,7 +2558,7 @@ def build_report(d):
 
     # ── New field extraction ──────────────────────────────────────────────────
     health_score          = clean(d.get('health_score'))
-    recommendations       = d.get('strategic_recommendations') or d.get('recommendations')
+    recommendations       = d.get('strategic_recommendations')
     plain_english_summary = str(d.get('plain_english_summary','')).strip()
     forecast_period  = str(d.get('forecast_period','')).strip()
     forecast_rev     = clean(d.get('forecast_revenue'))
@@ -3334,6 +3334,39 @@ def build_report(d):
     doc.build(story, canvasmaker=PageNumCanvas)
     buf.seek(0)
     return buf
+
+# ── Claude prompt schema for the three insight keys ──────────────────────────
+_KEY_SCHEMA = {
+    "key_takeaways": (
+        "A JSON array of exactly 3 strings. Each string is one punchy sentence summarising "
+        "what actually happened in the historical data this period — specific to the actual "
+        "numbers, past tense, no generic advice. "
+        'Example: "E-Bike rentals scaled to 26% of March revenue following a strong launch month."'
+    ),
+    "strategic_recommendations": (
+        "A JSON array of exactly 3 strings. Each string is one specific forward-looking strategic "
+        "action the business should take based on the data. Be specific to the actual numbers — "
+        "not generic advice. "
+        'Example: "Secure 5-10 additional e-bikes ahead of peak summer season to capitalise on the 312% March revenue surge."'
+    ),
+    "timeline_90_days": (
+        "A JSON array of exactly 3 strings. Each string represents one month of an execution plan "
+        'in chronological order. Format each as "Month X: [specific action]". Base the actions on '
+        "the actual data findings. "
+        'Example: "Month 1: Investigate the February cafe footfall dip and identify whether it was '
+        "weather, marketing, or operational. Month 2: Negotiate supplier terms for expanded e-bike "
+        "inventory based on March demand data. Month 3: Deploy targeted local marketing tracking "
+        'customer acquisition cost against the new revenue baseline."'
+    ),
+}
+
+@app.route('/prompt-schema', methods=['GET'])
+def prompt_schema():
+    """Returns the three required insight key descriptions to paste into your Claude prompt."""
+    lines = []
+    for key, desc in _KEY_SCHEMA.items():
+        lines.append(f'{key}: {desc}')
+    return {'keys': _KEY_SCHEMA, 'prompt_additions': '\n\n'.join(lines)}, 200
 
 @app.route('/generate', methods=['POST'])
 def generate():
