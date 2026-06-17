@@ -526,7 +526,7 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                         c.setFont(FONT_SERIF_BOLD, 16)
                         c.drawString(14*mm, firm_y, prepared_by)
                 else:
-                    fn_text  = prepared_by if is_wl else 'FinReportAI'
+                    fn_text  = prepared_by if is_wl else 'Pagevo'
                     fn_color = WHITE if is_wl else GOLD
                     c.setFillColor(fn_color)
                     c.setFont(FONT_SERIF_BOLD, 16)
@@ -2498,7 +2498,7 @@ def build_report(d):
     wl_contact  = str(d.get('white_label_contact','')).strip()
     wl_disclaimer = str(d.get('white_label_disclaimer','')).strip()
     is_wl = bool(wl_name and wl_name.upper() not in ('NA','N/A','NONE',''))
-    prepared_by = wl_name if is_wl else 'FinReportAI'
+    prepared_by = wl_name if is_wl else 'Pagevo'
 
     def safe_colour(hex_val, fallback):
         try:
@@ -2518,7 +2518,7 @@ def build_report(d):
     bname = str(d.get('business_name','Report')).replace(' ','_').replace('&','and')
     period_safe = str(d.get('period','')).split('—')[0].strip().replace(' ','_')
     firm_safe = prepared_by.replace(' ','_').replace('&','and')
-    download_name = f"{firm_safe}_{bname}_{period_safe}.pdf" if is_wl else f"FinReportAI_{bname}_{period_safe}.pdf"
+    download_name = f"{firm_safe}_{bname}_{period_safe}.pdf" if is_wl else f"Pagevo_{bname}_{period_safe}.pdf"
     d['_download_name'] = download_name
 
     doc=SimpleDocTemplate(buf,pagesize=A4,leftMargin=17*mm,rightMargin=17*mm,topMargin=11*mm,bottomMargin=14*mm)
