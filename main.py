@@ -3017,7 +3017,51 @@ def build_report(d):
             verdict_txt = '<b>Overall:</b> This period requires management attention across several key metrics.'
         story.append(Paragraph(verdict_txt, s('verdict', fontName=FONT_SANS, fontSize=9, textColor=DARK, leading=13)))
         story.append(Spacer(1,2*mm))
-    story.append(Paragraph(str(d.get('executive_summary','No summary provided.')),ST_BODY))
+    # ── Canonical summary paragraph (always uses verified figures) ────────────
+    try:
+        _bname  = str(d.get('business_name', 'The business')).strip()
+        _period = str(d.get('period', '')).strip()
+        _cr     = canonical_revenue
+        _cgm    = canonical_gross_margin
+        _cnp    = canonical_net_profit
+        _cnm    = canonical_net_margin
+        if _cr is not None and _cnm is not None:
+            if _cnm >= 15:
+                _tone = 'strong'
+            elif _cnm >= 5:
+                _tone = 'mixed'
+            else:
+                _tone = 'challenging'
+            _canon_parts = [f'{_bname} delivered {_tone} results']
+            if _period:
+                _canon_parts[0] += f' for {_period}'
+            _canon_parts[0] += '.'
+            _detail = f'Total revenue was {fmt(_cr)}'
+            if _cgm is not None:
+                _detail += f', gross margin {_cgm:.1f}%'
+            if _cnp is not None:
+                _detail += f', net profit {fmt(_cnp)}'
+            _detail += f' representing a {_cnm:.1f}% net margin.'
+            _canon_summary = ' '.join(_canon_parts) + ' ' + _detail
+            story.append(Paragraph(
+                _canon_summary,
+                s('csumm', fontName=FONT_SANS_BOLD, fontSize=9.5, textColor=NAVY, leading=15)
+            ))
+            story.append(Spacer(1, 3*mm))
+    except Exception:
+        pass
+    # ── Analyst Commentary (Claude's narrative — supplementary context) ────────
+    _exec_text = str(d.get('executive_summary', '')).strip()
+    if _exec_text and _exec_text.upper() not in ('NA', 'N/A', 'NONE', ''):
+        story.append(Paragraph(
+            'Analyst Commentary',
+            s('aclbl', fontName=FONT_SANS_BOLD, fontSize=7.5, textColor=GRAY, leading=11)
+        ))
+        story.append(Spacer(1, 1*mm))
+        story.append(Paragraph(
+            _exec_text,
+            s('acbody', fontName=FONT_SERIF_IT, fontSize=8.5, textColor=colors.HexColor('#6B7280'), leading=14)
+        ))
     # Confidence indicator (item 6)
     try:
         _n_per = len([v for v in period_rev if has_val(v)]) or max(len(periods), 1)
@@ -3278,8 +3322,7 @@ def build_report(d):
 
     # ── P&L Table ─────────────────────────────────────────────────────────────
     if revenue_items or cogs_items or opex_items or has_val(d.get('total_revenue')):
-        from reportlab.platypus import CondPageBreak as _CPB
-        story.append(_CPB(40*mm))
+        story.append(PageBreak())
         story.append(KeepTogether([section_header('Full Profit & Loss Statement', C_ACCENT),Spacer(1,3*mm)]))
         if is_comparison:
             story.append(comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, prev_revenue_items, prev_cogs_items, prev_opex_items, C_ACCENT))
