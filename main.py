@@ -2597,7 +2597,7 @@ def build_report(d):
     prev_opex_items    = get_list(d, 'prev_opex_items')
     is_comparison = has_val(d.get('prev_total_revenue')) and str(d.get('prev_total_revenue','')).upper() not in ('NA','N/A','NONE','')
 
-    # Periods fallback: if periods_full is empty try dict-keyed values or item count
+    # Periods fallback tier 1: dict-keyed item values
     if not periods_full:
         _ref = revenue_items or cogs_items or opex_items
         if _ref and isinstance(_ref[0].get('values'), dict):
@@ -2605,12 +2605,31 @@ def build_report(d):
             periods      = [normalise_period_label(p) for p in periods_full]
             periods_keys = [p.lower().replace(' ', '').replace('-', '') for p in periods_full]
 
-    print(f"[periods_full] {periods_full}", flush=True)
-    if len(periods_full) == 0:
-        raise ValueError(
-            f"periods_full is empty — cannot render period columns. "
-            f"d['periods'] was: {repr(periods_raw)}"
+    # Periods fallback tier 2: scan d for keys matching revenue_<word>
+    if not periods_full:
+        _SKIP = {'total_revenue', 'total_cogs', 'total_opex', 'gross_profit', 'net_profit',
+                 'gross_margin', 'net_margin'}
+        _rev_keys = sorted(
+            k[len('revenue_'):] for k in d
+            if k.startswith('revenue_') and k not in _SKIP
+            and str(d[k]).replace('.', '', 1).lstrip('-').isdigit()
         )
+        if _rev_keys:
+            periods_full = [k.replace('_', ' ').title() for k in _rev_keys][:6]
+            periods_keys = _rev_keys[:6]
+            periods      = [normalise_period_label(p) for p in periods_full]
+
+    # Periods fallback tier 3: generate generic labels from item value count
+    if not periods_full:
+        _ref = revenue_items or cogs_items or opex_items
+        _n = len(_ref[0].get('values', [])) if _ref else 0
+        if _n == 0:
+            _n = 1
+        periods_full = [f'Period {i+1}' for i in range(_n)][:6]
+        periods      = [normalise_period_label(p) for p in periods_full]
+        periods_keys = [p.lower().replace(' ', '') for p in periods_full]
+
+    print(f"[periods_full] {periods_full}", flush=True)
 
     # COGS value validation: if a period value exceeds the item total by >10%
     # it is almost certainly a misrouted revenue figure — zero it out
