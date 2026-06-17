@@ -920,11 +920,15 @@ def management_summary_box(d, C_ACCENT):
         bullets = []
         for rec in recs[:3]:
             text = str(rec).strip()
+            # Truncate to first sentence
             for sep in ['. ', '! ', '? ']:
                 idx = text.find(sep)
                 if 0 < idx < len(text) - 1:
                     text = text[:idx + 1]
                     break
+            # Cap at 80 chars so Key Takeaways always reads shorter than full Recommendations
+            if len(text) > 80:
+                text = text[:77].rstrip() + '...'
             if text:
                 bullets.append(text)
         if not bullets:
@@ -1585,10 +1589,7 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
         ]
         opex_tv = clean(opex_total)
         total_rv = clean(d.get('total_revenue'))
-        opex_pct_sub = ''
-        if opex_tv and total_rv and total_rv > 0:
-            opex_pct_sub = f'  <font name="{FONT_SANS}" size="6.5" color="#9CA3AF">{opex_tv/total_rv*100:.1f}% of rev</font>'
-        opex_lbl = Paragraph(f'Total Operating Expenses{opex_pct_sub}', ST_BOLD)
+        opex_lbl = Paragraph('Total Operating Expenses', ST_BOLD)
         rows.append(blank()); blank_rows.append(len(rows)-1)
         rows.append(item_row({'label':'Total Operating Expenses','values':opex_period_vals,'total':opex_total}, bold=True, indent=False, lbl_override=opex_lbl))
         teal_rows.append(len(rows)-1)
@@ -2347,22 +2348,12 @@ def next_90_days_section(d, C_ACCENT):
             if isinstance(actions, str):
                 try: actions = json.loads(actions)
                 except Exception: actions = [a.strip() for a in actions.split('|') if a.strip()]
-        using_recs_fallback = False
+        # Only use next_90_days field — no fallback to recommendations to avoid duplicate content
         if not actions or not isinstance(actions, list) or not any(str(a).strip() for a in actions):
-            recs = d.get('recommendations')
-            if recs:
-                if isinstance(recs, str):
-                    try: recs = json.loads(recs)
-                    except Exception: recs = [r.strip() for r in recs.split('|') if r.strip()]
-                actions = recs if isinstance(recs, list) else []
-                using_recs_fallback = True
-        if not actions:
             return []
         actions = [str(a).strip() for a in actions if str(a).strip()][:3]
         if not actions:
             return []
-        if using_recs_fallback:
-            actions = [f'Focus on this in the next 90 days: {a}' for a in actions]
 
         items = []
         for i, action in enumerate(actions, 1):
