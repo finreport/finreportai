@@ -933,9 +933,6 @@ def management_summary_box(d, C_ACCENT):
                 if 0 < idx < len(text) - 1:
                     text = text[:idx + 1]
                     break
-            # Cap at 80 chars so Key Takeaways always reads shorter than full Recommendations
-            if len(text) > 80:
-                text = text[:77].rstrip() + '...'
             if text:
                 bullets.append(text)
         if not bullets:
@@ -1633,6 +1630,7 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
         ('ROWBACKGROUNDS',(0,1),(-1,-1),[WHITE,OFFWHITE]),
         ('LINEBELOW',(0,0),(-1,0),1,TEAL),
         ('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),
+        ('TOPPADDING',(0,0),(-1,0),3),('BOTTOMPADDING',(0,0),(-1,0),3),
         ('LEFTPADDING',(0,0),(-1,-1),5),('RIGHTPADDING',(0,0),(-1,-1),5),
         ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
         ('BACKGROUND',(0,net_row_idx),(-1,net_row_idx),colors.HexColor('#FFF7E6')),
@@ -1834,6 +1832,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         ('BACKGROUND',(0,net_idx),(-1,net_idx),colors.HexColor('#FFF7E6')),
         ('LINEABOVE',(0,net_idx),(-1,net_idx),1.5,NAVY),
         ('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),
+        ('TOPPADDING',(0,0),(-1,0),3),('BOTTOMPADDING',(0,0),(-1,0),3),
         ('LEFTPADDING',(0,0),(-1,-1),4),('RIGHTPADDING',(0,0),(-1,-1),4),
         ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
         ('SPAN',(0,cplfn_idx),(-1,cplfn_idx)),
