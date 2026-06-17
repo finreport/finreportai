@@ -75,8 +75,8 @@ ST_BODY    = s('body', fontName=FONT_SANS, fontSize=9, textColor=colors.HexColor
 ST_SMALL   = s('sm', fontName=FONT_SANS, fontSize=7.5, textColor=GRAY, leading=11)
 ST_TH      = s('th', fontName=FONT_SANS_BOLD, fontSize=8, textColor=WHITE, alignment=TA_RIGHT, leading=11)
 ST_TH_L    = s('thl', fontName=FONT_SANS_BOLD, fontSize=8, textColor=WHITE, leading=11)
-ST_TD      = s('td', fontName=FONT_SANS, fontSize=8, textColor=DARK, alignment=TA_RIGHT, leading=11)
-ST_TD_L    = s('tdl', fontName=FONT_SANS, fontSize=8, textColor=DARK, leading=11)
+ST_TD      = s('td', fontName=FONT_SANS, fontSize=7.5, textColor=DARK, alignment=TA_RIGHT, leading=10)
+ST_TD_L    = s('tdl', fontName=FONT_SANS, fontSize=7.5, textColor=DARK, leading=10)
 ST_BOLD    = s('bold', fontName=FONT_SANS_BOLD, fontSize=8, textColor=NAVY, leading=11)
 ST_BOLD_R  = s('boldr', fontName=FONT_SANS_BOLD, fontSize=8, textColor=NAVY, alignment=TA_RIGHT, leading=11)
 ST_FOOTER  = s('foot', fontName=FONT_SANS, fontSize=7, textColor=GRAY, alignment=TA_CENTER, leading=10)
@@ -1631,7 +1631,7 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
         ('BACKGROUND',(0,0),(-1,0),NAVY),
         ('ROWBACKGROUNDS',(0,1),(-1,-1),[WHITE,OFFWHITE]),
         ('LINEBELOW',(0,0),(-1,0),1,TEAL),
-        ('TOPPADDING',(0,0),(-1,-1),3),('BOTTOMPADDING',(0,0),(-1,-1),3),
+        ('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),
         ('LEFTPADDING',(0,0),(-1,-1),5),('RIGHTPADDING',(0,0),(-1,-1),5),
         ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
         ('BACKGROUND',(0,net_row_idx),(-1,net_row_idx),colors.HexColor('#FFF7E6')),
@@ -1832,7 +1832,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         ('LINEBELOW',(0,0),(-1,0),1,C_ACCENT),
         ('BACKGROUND',(0,net_idx),(-1,net_idx),colors.HexColor('#FFF7E6')),
         ('LINEABOVE',(0,net_idx),(-1,net_idx),1.5,NAVY),
-        ('TOPPADDING',(0,0),(-1,-1),3),('BOTTOMPADDING',(0,0),(-1,-1),3),
+        ('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),
         ('LEFTPADDING',(0,0),(-1,-1),4),('RIGHTPADDING',(0,0),(-1,-1),4),
         ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
         ('SPAN',(0,cplfn_idx),(-1,cplfn_idx)),
@@ -2796,36 +2796,74 @@ def build_report(d):
     if canonical_gross_margin is not None: d['gross_margin']  = canonical_gross_margin
     if canonical_net_margin   is not None: d['net_margin']    = canonical_net_margin
 
-    # ── sync_narrative_text: replace £ figures in narrative fields with canonical values ──
+    # ── sync_narrative_text: replace monetary/pct figures in narrative fields ──
     def sync_narrative_text(d):
-        _canon_targets = [
-            (canonical_revenue,      canonical_revenue),
-            (canonical_net_profit,   canonical_net_profit),
-            (canonical_gross_profit, canonical_gross_profit),
-        ]
-        _pat = re.compile(r'£([\d,]+(?:\.\d+)?)(k)?', re.IGNORECASE)
+        # Money targets: (canonical_value, formatter)
+        _money_targets = []
+        for _cv, _fmtfn in [
+            (canonical_revenue,      fmt),
+            (canonical_net_profit,   fmt),
+            (canonical_gross_profit, fmt),
+        ]:
+            if _cv is not None and _cv > 0:
+                _money_targets.append((_cv, _fmtfn))
 
-        def _parse_amount(num_str, k_suffix):
+        # Percentage targets: canonical margins are 0-100 scale
+        _pct_targets = []
+        for _cv in [canonical_net_margin, canonical_gross_margin]:
+            if _cv is not None:
+                _pct_targets.append(_cv)
+
+        # Per-period money targets from d
+        for _k in periods_keys:
+            for _pfx in ('revenue_', 'net_profit_', 'gross_profit_'):
+                _pv = clean(d.get(_pfx + _k))
+                if _pv is not None and _pv > 0:
+                    _money_targets.append((_pv, fmt))
+
+        # £ pattern: £79,150 | £79k | £79.1k
+        _pat_money = re.compile(r'£([\d,]+(?:\.\d+)?)(k)?', re.IGNORECASE)
+        # Percentage pattern: 31.4% or 31%
+        _pat_pct   = re.compile(r'(\d+(?:\.\d+)?)\s*%')
+
+        def _parse_money(num_str, k_suffix):
             try:
                 v = float(num_str.replace(',', ''))
-                if k_suffix:
-                    v *= 1000
-                return v
+                return v * 1000 if k_suffix else v
             except Exception:
                 return None
+
+        def _money_sub(m):
+            amt = _parse_money(m.group(1), m.group(2))
+            if amt is None:
+                return m.group(0)
+            for tgt, fmtfn in _money_targets:
+                if abs(amt - tgt) / tgt <= 0.15:
+                    canonical_str = fmtfn(tgt)
+                    # Preserve £Xk format if original used it
+                    if m.group(2):
+                        k_val = tgt / 1000
+                        if k_val == int(k_val):
+                            return f'£{int(k_val)}k'
+                        return f'£{k_val:.1f}k'
+                    return canonical_str
+            return m.group(0)
+
+        def _pct_sub(m):
+            val = float(m.group(1))
+            for tgt in _pct_targets:
+                if tgt != 0 and abs(val - tgt) / abs(tgt) <= 0.15:
+                    if '.' in m.group(1):
+                        return f'{tgt:.1f}%'
+                    return f'{tgt:.0f}%'
+            return m.group(0)
 
         def _replace_in(text):
             if not text or str(text).upper() in ('NA', 'N/A', 'NONE', ''):
                 return text
-            def _sub(m):
-                amt = _parse_amount(m.group(1), m.group(2))
-                if amt is None:
-                    return m.group(0)
-                for _, tgt in _canon_targets:
-                    if tgt is not None and tgt > 0 and abs(amt - tgt) / tgt <= 0.10:
-                        return fmt(tgt)
-                return m.group(0)
-            return _pat.sub(_sub, str(text))
+            text = _pat_money.sub(_money_sub, str(text))
+            text = _pat_pct.sub(_pct_sub, text)
+            return text
 
         for _nf in ('executive_summary', 'analysis', 'forecast_narrative', 'industry_context'):
             _nv = d.get(_nf)
@@ -3240,6 +3278,8 @@ def build_report(d):
 
     # ── P&L Table ─────────────────────────────────────────────────────────────
     if revenue_items or cogs_items or opex_items or has_val(d.get('total_revenue')):
+        from reportlab.platypus import CondPageBreak as _CPB
+        story.append(_CPB(40*mm))
         story.append(KeepTogether([section_header('Full Profit & Loss Statement', C_ACCENT),Spacer(1,3*mm)]))
         if is_comparison:
             story.append(comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, prev_revenue_items, prev_cogs_items, prev_opex_items, C_ACCENT))
