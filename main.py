@@ -3489,9 +3489,22 @@ def handle_subscription(subscription, status):
             if items:
                 price_id = items[0].get('price', {}).get('id')
 
-        plan = 'standard'
-        if price_id == os.environ.get('STRIPE_WHITE_LABEL_PRICE_ID'):
+        _wl_price_ids = {
+            os.environ.get('STRIPE_WHITE_LABEL_PRICE_ID'),
+            os.environ.get('STRIPE_WL_6MONTH_PRICE_ID'),
+            os.environ.get('STRIPE_WL_ANNUAL_PRICE_ID'),
+        }
+        _std_price_ids = {
+            os.environ.get('STRIPE_STD_MONTHLY_PRICE_ID'),
+            os.environ.get('STRIPE_STD_6MONTH_PRICE_ID'),
+            os.environ.get('STRIPE_STD_ANNUAL_PRICE_ID'),
+        }
+        if price_id and price_id in _wl_price_ids:
             plan = 'white_label'
+        elif price_id and price_id in _std_price_ids:
+            plan = 'standard'
+        else:
+            plan = 'standard'
 
         active = status == 'active'
 
