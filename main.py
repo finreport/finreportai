@@ -2605,6 +2605,13 @@ def build_report(d):
             periods      = [normalise_period_label(p) for p in periods_full]
             periods_keys = [p.lower().replace(' ', '').replace('-', '') for p in periods_full]
 
+    print(f"[periods_full] {periods_full}", flush=True)
+    if len(periods_full) == 0:
+        raise ValueError(
+            f"periods_full is empty — cannot render period columns. "
+            f"d['periods'] was: {repr(periods_raw)}"
+        )
+
     # COGS value validation: if a period value exceeds the item total by >10%
     # it is almost certainly a misrouted revenue figure — zero it out
     for _it in cogs_items:
@@ -2730,41 +2737,47 @@ def build_report(d):
     if canonical_gross_margin is not None: d['gross_margin']  = canonical_gross_margin
     if canonical_net_margin   is not None: d['net_margin']    = canonical_net_margin
 
+    # ── sync_narrative_text: replace £ figures in narrative fields with canonical values ──
+    def sync_narrative_text(d):
+        _canon_targets = [
+            (canonical_revenue,      canonical_revenue),
+            (canonical_net_profit,   canonical_net_profit),
+            (canonical_gross_profit, canonical_gross_profit),
+        ]
+        _pat = re.compile(r'£([\d,]+(?:\.\d+)?)(k)?', re.IGNORECASE)
+
+        def _parse_amount(num_str, k_suffix):
+            try:
+                v = float(num_str.replace(',', ''))
+                if k_suffix:
+                    v *= 1000
+                return v
+            except Exception:
+                return None
+
+        def _replace_in(text):
+            if not text or str(text).upper() in ('NA', 'N/A', 'NONE', ''):
+                return text
+            def _sub(m):
+                amt = _parse_amount(m.group(1), m.group(2))
+                if amt is None:
+                    return m.group(0)
+                for _, tgt in _canon_targets:
+                    if tgt is not None and tgt > 0 and abs(amt - tgt) / tgt <= 0.10:
+                        return fmt(tgt)
+                return m.group(0)
+            return _pat.sub(_sub, str(text))
+
+        for _nf in ('executive_summary', 'analysis', 'forecast_narrative', 'industry_context'):
+            _nv = d.get(_nf)
+            if _nv and str(_nv).upper() not in ('NA', 'N/A', 'NONE', ''):
+                d[_nf] = _replace_in(str(_nv))
+
+    sync_narrative_text(d)
+
     # ── Step 7: Update each item's .total = sum of its values ─────────────────
     for _it in revenue_items + cogs_items + opex_items:
         _it['total'] = sum(clean(v) or 0 for v in _it.get('values', []))
-
-    # ── Fix 3: Correct misquoted £ figures in narrative fields ────────────────
-    # Claude generates narrative before canonical recalculation, so its inline
-    # £ amounts may reference its own (wrong) totals. Replace any £ figure
-    # that is within 50% of a canonical value but differs by more than 5%.
-    _fig_pat = re.compile(r'£([\d,]+)')
-
-    def _narrative_replace(text):
-        if not text or str(text).upper() in ('NA', 'N/A', 'NONE', ''):
-            return text
-        def _sub(m):
-            try:
-                amt = float(m.group(1).replace(',', ''))
-            except Exception:
-                return m.group(0)
-            if canonical_revenue and canonical_revenue > 0:
-                if 0.5 * canonical_revenue <= amt <= 2.0 * canonical_revenue:
-                    if abs(amt - canonical_revenue) / canonical_revenue > 0.05:
-                        return fmt(canonical_revenue)
-                    return fmt(canonical_revenue)  # snap to canonical even if close
-            if canonical_net_profit and canonical_net_profit > 0:
-                if 0.5 * canonical_net_profit <= amt <= 2.0 * canonical_net_profit:
-                    if abs(amt - canonical_net_profit) / canonical_net_profit > 0.05:
-                        return fmt(canonical_net_profit)
-                    return fmt(canonical_net_profit)
-            return m.group(0)
-        return _fig_pat.sub(_sub, str(text))
-
-    for _nf in ('executive_summary', 'analysis', 'forecast_narrative', 'industry_context'):
-        _nv = d.get(_nf)
-        if _nv and str(_nv).upper() not in ('NA', 'N/A', 'NONE', ''):
-            d[_nf] = _narrative_replace(str(_nv))
 
     period_rev = [d.get('revenue_'+k) for k in periods_keys]
     opex_with_totals = [it for it in opex_items if has_val(it.get('total'))]
