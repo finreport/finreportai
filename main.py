@@ -907,7 +907,7 @@ def traffic_light_dashboard(d, C_ACCENT, period_revs=None):
 def management_summary_box(d, C_ACCENT):
     """KEY TAKEAWAYS box with first 3 recommendations as bullets."""
     try:
-        recs = d.get('recommendations')
+        recs = d.get('key_takeaways') or d.get('recommendations')
         if not recs:
             return None
         if isinstance(recs, str):
@@ -2343,7 +2343,7 @@ def peer_comparison_section(d, C_ACCENT):
 def next_90_days_section(d, C_ACCENT):
     """3 numbered action cards from next_90_days field or fallback to recommendations."""
     try:
-        actions = d.get('next_90_days')
+        actions = d.get('timeline_90_days') or d.get('next_90_days')
         if actions:
             if isinstance(actions, str):
                 try: actions = json.loads(actions)
@@ -2548,7 +2548,7 @@ def build_report(d):
 
     # ── New field extraction ──────────────────────────────────────────────────
     health_score          = clean(d.get('health_score'))
-    recommendations       = d.get('recommendations')
+    recommendations       = d.get('strategic_recommendations') or d.get('recommendations')
     plain_english_summary = str(d.get('plain_english_summary','')).strip()
     forecast_period  = str(d.get('forecast_period','')).strip()
     forecast_rev     = clean(d.get('forecast_revenue'))
