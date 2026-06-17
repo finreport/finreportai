@@ -2214,18 +2214,17 @@ def report_card_section(d, C_ACCENT):
             else:           g, col, exp = 'F', RED_TEXT,   f'{pct:.0f}% decline'
             cards.append(grade_card('Revenue Growth', g, exp, col))
 
-        # Gross Margin Quality
+        # Gross Margin Quality — canonical gross_margin is always 0-100 scale
         gm = clean(d.get('gross_margin'))
         if gm is not None:
-            gm100 = gm if gm > 1 else gm * 100
-            if   gm100 > 70: g, col, exp = 'A', GREEN_TEXT, f'{gm100:.0f}% margin'
-            elif gm100 > 60: g, col, exp = 'B', TEAL,       f'{gm100:.0f}% margin'
-            elif gm100 > 50: g, col, exp = 'C', GOLD,       f'{gm100:.0f}% margin'
-            elif gm100 > 40: g, col, exp = 'D', AMBER_TEXT, f'{gm100:.0f}% margin'
-            else:            g, col, exp = 'F', RED_TEXT,   f'{gm100:.0f}% margin'
+            if   gm > 70: g, col, exp = 'A', GREEN_TEXT, f'{gm:.0f}% margin'
+            elif gm > 60: g, col, exp = 'B', TEAL,       f'{gm:.0f}% margin'
+            elif gm > 50: g, col, exp = 'C', GOLD,       f'{gm:.0f}% margin'
+            elif gm > 40: g, col, exp = 'D', AMBER_TEXT, f'{gm:.0f}% margin'
+            else:         g, col, exp = 'F', RED_TEXT,   f'{gm:.0f}% margin'
             cards.append(grade_card('Gross Margin', g, exp, col))
 
-        # Cost Control
+        # Cost Control — canonical_opex / canonical_revenue * 100
         opex_v = clean(d.get('total_opex'))
         rev_v  = clean(d.get('total_revenue'))
         if opex_v is not None and rev_v and rev_v > 0:
@@ -2237,15 +2236,14 @@ def report_card_section(d, C_ACCENT):
             else:             g, col, exp = 'F', RED_TEXT,   f'{op_pct:.0f}% of rev'
             cards.append(grade_card('Cost Control', g, exp, col))
 
-        # Net Profitability
+        # Net Profitability — canonical_net_margin is always 0-100 scale
         nm = clean(d.get('net_margin'))
         if nm is not None:
-            nm100 = nm if nm > 1 else nm * 100
-            if   nm100 >  25: g, col, exp = 'A', GREEN_TEXT, f'{nm100:.0f}% margin'
-            elif nm100 >  15: g, col, exp = 'B', TEAL,       f'{nm100:.0f}% margin'
-            elif nm100 >   8: g, col, exp = 'C', GOLD,       f'{nm100:.0f}% margin'
-            elif nm100 >=  0: g, col, exp = 'D', AMBER_TEXT, f'{nm100:.0f}% margin'
-            else:             g, col, exp = 'F', RED_TEXT,   f'{nm100:.0f}% margin'
+            if   nm >  25: g, col, exp = 'A', GREEN_TEXT, f'{nm:.0f}% margin'
+            elif nm >  15: g, col, exp = 'B', TEAL,       f'{nm:.0f}% margin'
+            elif nm >   8: g, col, exp = 'C', GOLD,       f'{nm:.0f}% margin'
+            elif nm >=  0: g, col, exp = 'D', AMBER_TEXT, f'{nm:.0f}% margin'
+            else:          g, col, exp = 'F', RED_TEXT,   f'{nm:.0f}% margin'
             cards.append(grade_card('Net Profitability', g, exp, col))
 
         # Overall Health
@@ -2526,6 +2524,28 @@ def build_report(d):
     doc.author  = prepared_by
     doc.subject = f"Financial Report for {d.get('business_name','')}"
 
+    # ── Shared label normaliser (used by dedup + hallucination guard) ─────────
+    def _norm_label(lbl):
+        return re.sub(r'[^a-z0-9]', '', str(lbl).lower())
+
+    def _labels_match(na, nb):
+        if na == nb: return True
+        shorter, longer = (na, nb) if len(na) <= len(nb) else (nb, na)
+        return len(shorter) >= 5 and longer.startswith(shorter)
+
+    def _edit_dist(a, b):
+        if not a: return len(b)
+        if not b: return len(a)
+        if abs(len(a) - len(b)) > 10: return 99
+        dp = list(range(len(b) + 1))
+        for i in range(1, len(a) + 1):
+            prev = dp[0]; dp[0] = i
+            for j in range(1, len(b) + 1):
+                temp = dp[j]
+                dp[j] = prev if a[i-1] == b[j-1] else 1 + min(prev, dp[j], dp[j-1])
+                prev = temp
+        return dp[len(b)]
+
     # ── Step 8: Parse periods from d['periods'] only ─────────────────────────
     periods_raw = d.get('periods', '')
     if isinstance(periods_raw, list):
@@ -2536,8 +2556,15 @@ def build_report(d):
         periods_full = []
     else:
         _ps = str(periods_raw).strip()
-        periods_full = [p.strip() for p in _ps.split(',')
-                        if p.strip() and not p.strip().lstrip('-').isdigit()]
+        try:
+            _parsed = json.loads(_ps)
+            if isinstance(_parsed, list):
+                periods_full = [str(p).strip() for p in _parsed if str(p).strip()]
+            else:
+                periods_full = []
+        except Exception:
+            periods_full = [p.strip() for p in _ps.split(',')
+                            if p.strip() and not p.strip().lstrip('-').isdigit()]
     periods_full = periods_full[:6]
     periods = [normalise_period_label(p) for p in periods_full]
     periods_keys = [p.lower().replace(' ', '').replace('-', '') for p in periods_full]
@@ -2551,19 +2578,42 @@ def build_report(d):
     prev_opex_items    = get_list(d, 'prev_opex_items')
     is_comparison = has_val(d.get('prev_total_revenue')) and str(d.get('prev_total_revenue','')).upper() not in ('NA','N/A','NONE','')
 
-    # ── Step 2: Deduplicate items by label (merge values element-wise, sum totals) ──
+    # Periods fallback: if periods_full is empty try dict-keyed values or item count
+    if not periods_full:
+        _ref = revenue_items or cogs_items or opex_items
+        if _ref and isinstance(_ref[0].get('values'), dict):
+            periods_full = list(_ref[0]['values'].keys())[:6]
+            periods      = [normalise_period_label(p) for p in periods_full]
+            periods_keys = [p.lower().replace(' ', '').replace('-', '') for p in periods_full]
+
+    # Store original labels before any modification (for hallucination guard)
+    _all_orig_labels = set()
+    for _it_orig in revenue_items + cogs_items + opex_items:
+        _nl = _norm_label(_it_orig.get('label', ''))
+        if _nl: _all_orig_labels.add(_nl)
+
+    # ── Step 2: Deduplicate items by label (merge values element-wise) ────────
     def _dedup(items):
-        seen_order = []
+        seen_keys   = []   # original lowercased labels in insertion order
+        seen_norms  = []   # normalised labels parallel to seen_keys
         merged = {}
         for it in items:
-            lbl = str(it.get('label', '')).strip().lower()
-            if lbl not in merged:
-                merged[lbl] = {'label': it.get('label', ''),
+            raw_lbl = str(it.get('label', '')).strip()
+            lbl = raw_lbl.lower()
+            nl  = _norm_label(lbl)
+            matched_key = None
+            for idx, enl in enumerate(seen_norms):
+                if _labels_match(nl, enl):
+                    matched_key = seen_keys[idx]
+                    break
+            if matched_key is None:
+                seen_keys.append(lbl)
+                seen_norms.append(nl)
+                merged[lbl] = {'label': raw_lbl,
                                'values': [clean(v) or 0 for v in it.get('values', [])],
                                'total': clean(it.get('total'))}
-                seen_order.append(lbl)
             else:
-                ex = merged[lbl]
+                ex = merged[matched_key]
                 ev = ex['values']
                 nv = [clean(v) or 0 for v in it.get('values', [])]
                 ln = max(len(ev), len(nv))
@@ -2571,11 +2621,7 @@ def build_report(d):
                                 for j in range(ln)]
                 nt = clean(it.get('total'))
                 ex['total'] = (ex['total'] or 0) + (nt or 0)
-        return [merged[lbl] for lbl in seen_order]
-
-    revenue_items = _dedup(revenue_items)
-    cogs_items    = _dedup(cogs_items)
-    opex_items    = _dedup(opex_items)
+        return [merged[k] for k in seen_keys]
 
     # ── Step 3: Reclassify misplaced line items ───────────────────────────────
     _COGS_KW = ('inventory', 'stock', 'parts', 'components', 'materials',
@@ -2600,6 +2646,23 @@ def build_report(d):
         (_bump_opex if any(kw in _ll for kw in _OPEX_KW) else _new_cogs).append(_it)
     cogs_items = _new_cogs
     opex_items = opex_items + _bump_opex
+
+    # Deduplicate again after reclassification (catches cross-bucket duplicates)
+    revenue_items = _dedup(revenue_items)
+    cogs_items    = _dedup(cogs_items)
+    opex_items    = _dedup(opex_items)
+
+    # ── Hallucination guard: remove phantom items not in original input ────────
+    def _is_genuine(it):
+        nl = _norm_label(it.get('label', ''))
+        if not nl: return False
+        if clean(it.get('total')) == 0 and not any(clean(v) for v in it.get('values', [])):
+            return False
+        return any(_edit_dist(nl, ol) <= 3 for ol in _all_orig_labels)
+
+    revenue_items = [it for it in revenue_items if _is_genuine(it)]
+    cogs_items    = [it for it in cogs_items    if _is_genuine(it)]
+    opex_items    = [it for it in opex_items    if _is_genuine(it)]
 
     # ── Step 4: Canonical totals from item.total fields ───────────────────────
     canonical_revenue = sum(clean(it.get('total')) or 0 for it in revenue_items) or None
@@ -2643,7 +2706,7 @@ def build_report(d):
 
     period_rev = [d.get('revenue_'+k) for k in periods_keys]
     opex_with_totals = [it for it in opex_items if has_val(it.get('total'))]
-    total_r = clean(d.get('total_revenue'))
+    total_r = canonical_revenue
 
     # ── New field extraction ──────────────────────────────────────────────────
     health_score          = clean(d.get('health_score'))
@@ -2693,7 +2756,7 @@ def build_report(d):
         toc_sections.append('Cash Flow Summary')
     if has_balsheet:
         toc_sections.append('Balance Sheet Snapshot')
-    if has_val(d.get('net_profit')) and (clean(d.get('net_profit')) or 0) > 0:
+    if canonical_net_profit is not None and canonical_net_profit > 0:
         toc_sections.append('Corporation Tax Estimate')
     if has_goals:
         toc_sections.append('Goals & Targets')
