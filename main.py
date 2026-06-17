@@ -2840,6 +2840,11 @@ def build_report(d):
         _ll = _label_lower(_it)
         (_bump_cogs if any(kw in _ll for kw in _COGS_KW) else _new_rev).append(_it)
     revenue_items = _new_rev
+    # Guard: discard any reclassified item whose label already exists in Claude's cogs_items
+    _orig_cogs_norms = [_norm_label(str(_it.get('label', ''))) for _it in cogs_items]
+    _bump_cogs = [_it for _it in _bump_cogs
+                  if not any(_labels_match(_norm_label(str(_it.get('label', ''))), _ocn)
+                             for _ocn in _orig_cogs_norms)]
     cogs_items = cogs_items + _bump_cogs
 
     _new_cogs, _bump_opex = [], []
@@ -2847,6 +2852,11 @@ def build_report(d):
         _ll = _label_lower(_it)
         (_bump_opex if any(kw in _ll for kw in _OPEX_KW) else _new_cogs).append(_it)
     cogs_items = _new_cogs
+    # Guard: discard any reclassified item whose label already exists in Claude's opex_items
+    _orig_opex_norms = [_norm_label(str(_it.get('label', ''))) for _it in opex_items]
+    _bump_opex = [_it for _it in _bump_opex
+                  if not any(_labels_match(_norm_label(str(_it.get('label', ''))), _oon)
+                             for _oon in _orig_opex_norms)]
     opex_items = opex_items + _bump_opex
 
     # Deduplicate again after reclassification (catches cross-bucket duplicates)
@@ -2983,6 +2993,61 @@ def build_report(d):
         canonical_gross_margin, canonical_net_margin, canonical_cogs, canonical_opex,
         periods_full
     )
+
+    # ── Sanitise key_takeaways: replace figures within 20% of any canonical value ──
+    try:
+        _kt_raw = d.get('key_takeaways')
+        if _kt_raw:
+            if isinstance(_kt_raw, str):
+                try:    _kt_raw = json.loads(_kt_raw)
+                except Exception: _kt_raw = [r.strip() for r in _kt_raw.split('|') if r.strip()]
+            if isinstance(_kt_raw, list):
+                # Overall canonical money targets
+                _kt_money_tgts = [v for v in [
+                    canonical_revenue, canonical_net_profit, canonical_gross_profit,
+                    canonical_cogs, canonical_opex,
+                ] if v is not None and v > 0]
+                # Per-period money targets
+                for _k in periods_keys:
+                    for _pfx in ('revenue_', 'net_profit_', 'gross_profit_', 'cogs_', 'opex_'):
+                        _pv = clean(d.get(_pfx + _k))
+                        if _pv is not None and _pv > 0:
+                            _kt_money_tgts.append(_pv)
+                # Percentage targets
+                _kt_pct_tgts = [v for v in [canonical_net_margin, canonical_gross_margin] if v is not None]
+
+                _kt_mpat = re.compile(r'£([\d,]+(?:\.\d+)?)(k)?', re.IGNORECASE)
+                _kt_ppat = re.compile(r'(\d+(?:\.\d+)?)\s*%')
+
+                def _kt_msub(m):
+                    try:
+                        amt = float(m.group(1).replace(',', ''))
+                        if m.group(2): amt *= 1000
+                    except Exception:
+                        return m.group(0)
+                    for tgt in _kt_money_tgts:
+                        if abs(amt - tgt) / tgt <= 0.20:
+                            if m.group(2):
+                                kv = tgt / 1000
+                                return f'£{kv:.0f}k' if kv == int(kv) else f'£{kv:.1f}k'
+                            return fmt(tgt)
+                    return m.group(0)
+
+                def _kt_psub(m):
+                    val = float(m.group(1))
+                    for tgt in _kt_pct_tgts:
+                        if tgt != 0 and abs(val - tgt) / abs(tgt) <= 0.20:
+                            return f'{tgt:.1f}%' if '.' in m.group(1) else f'{tgt:.0f}%'
+                    return m.group(0)
+
+                def _clean_kt(text):
+                    text = _kt_mpat.sub(_kt_msub, str(text))
+                    text = _kt_ppat.sub(_kt_psub, text)
+                    return text
+
+                d['key_takeaways'] = [_clean_kt(str(item)) for item in _kt_raw]
+    except Exception:
+        pass
 
     # ── Step 7: Update each item's .total = sum of its values ─────────────────
     for _it in revenue_items + cogs_items + opex_items:
