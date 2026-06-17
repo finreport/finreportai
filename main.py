@@ -513,11 +513,6 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                 p2.moveTo(pw, 0); p2.lineTo(pw, ph*0.28); p2.lineTo(pw*0.55, 0)
                 p2.close(); c.drawPath(p2, fill=1, stroke=0)
 
-                # Faint background watermark word
-                c.setFillColor(colors.Color(14/255, 138/255, 122/255, 0.055))
-                c.setFont(FONT_SERIF_BOLD, 95)
-                c.drawString(8*mm, 62*mm, bg_word)
-
                 # ── ZONE 1 — Firm header (top) ─────────────────────────────
                 firm_y = ph - 20*mm   # baseline ~258mm from bottom
 
@@ -2875,6 +2870,7 @@ def build_report(d):
     revenue_items = [it for it in revenue_items if _is_genuine(it)]
     cogs_items    = [it for it in cogs_items    if _is_genuine(it)]
     opex_items    = [it for it in opex_items    if _is_genuine(it)]
+    print(f"[opex_items labels] {[it.get('label','?') for it in opex_items]}", flush=True)
 
     # ── Step 4: Canonical totals from item.total fields ───────────────────────
     canonical_revenue = sum(clean(it.get('total')) or 0 for it in revenue_items) or None
@@ -2912,6 +2908,49 @@ def build_report(d):
     if canonical_gross_margin is not None: d['gross_margin']  = canonical_gross_margin
     if canonical_net_margin   is not None: d['net_margin']    = canonical_net_margin
 
+    # ── Shared figure-cleaning helper (flags, key_takeaways, etc.) ──────────────
+    def _fig_clean(text, tol=0.20):
+        if not text:
+            return text
+        _m_tgts = [(v, fmt) for v in [
+            canonical_revenue, canonical_net_profit, canonical_gross_profit,
+            canonical_cogs, canonical_opex,
+        ] if v is not None and v > 0]
+        for _k in periods_keys:
+            for _pfx in ('revenue_', 'net_profit_', 'gross_profit_', 'cogs_', 'opex_'):
+                _pv = clean(d.get(_pfx + _k))
+                if _pv is not None and _pv > 0:
+                    _m_tgts.append((_pv, fmt))
+        _p_tgts = [v for v in [canonical_net_margin, canonical_gross_margin] if v is not None]
+        for _k in periods_keys:
+            _pm = clean(d.get('net_margin_' + _k))
+            if _pm is not None:
+                _p_tgts.append(_pm)
+        # Hyphen guard: skip £X in ranges like £X-£Y
+        _mpat = re.compile(r'£([\d,]+(?:\.\d+)?)(k)?(?!\s*[-–]\s*£)', re.IGNORECASE)
+        _ppat = re.compile(r'(\d+(?:\.\d+)?)\s*%')
+        def _ms(m):
+            try:
+                amt = float(m.group(1).replace(',', '')) * (1000 if m.group(2) else 1)
+            except Exception:
+                return m.group(0)
+            for tgt, fmtfn in _m_tgts:
+                if abs(amt - tgt) / tgt <= tol:
+                    if m.group(2):
+                        kv = tgt / 1000
+                        return f'£{kv:.0f}k' if kv == int(kv) else f'£{kv:.1f}k'
+                    return fmtfn(tgt)
+            return m.group(0)
+        def _ps(m):
+            val = float(m.group(1))
+            for tgt in _p_tgts:
+                if tgt != 0 and abs(val - tgt) / abs(tgt) <= tol:
+                    return f'{tgt:.1f}%' if '.' in m.group(1) else f'{tgt:.0f}%'
+            return m.group(0)
+        text = _mpat.sub(_ms, str(text))
+        text = _ppat.sub(_ps, text)
+        return text
+
     # ── sync_narrative_text: replace monetary/pct figures in narrative fields ──
     def sync_narrative_text(d):
         # Money targets: (canonical_value, formatter)
@@ -2937,8 +2976,8 @@ def build_report(d):
                 if _pv is not None and _pv > 0:
                     _money_targets.append((_pv, fmt))
 
-        # £ pattern: £79,150 | £79k | £79.1k
-        _pat_money = re.compile(r'£([\d,]+(?:\.\d+)?)(k)?', re.IGNORECASE)
+        # £ pattern: £79,150 | £79k | £79.1k — skip if part of a hyphenated range like £X-£Y
+        _pat_money = re.compile(r'£([\d,]+(?:\.\d+)?)(k)?(?!\s*[-–]\s*£)', re.IGNORECASE)
         # Percentage pattern: 31.4% or 31%
         _pat_pct   = re.compile(r'(\d+(?:\.\d+)?)\s*%')
 
@@ -2994,7 +3033,7 @@ def build_report(d):
         periods_full
     )
 
-    # ── Sanitise key_takeaways: replace figures within 20% of any canonical value ──
+    # ── Sanitise key_takeaways: 25% tolerance, includes per-period margins ──────
     try:
         _kt_raw = d.get('key_takeaways')
         if _kt_raw:
@@ -3002,50 +3041,7 @@ def build_report(d):
                 try:    _kt_raw = json.loads(_kt_raw)
                 except Exception: _kt_raw = [r.strip() for r in _kt_raw.split('|') if r.strip()]
             if isinstance(_kt_raw, list):
-                # Overall canonical money targets
-                _kt_money_tgts = [v for v in [
-                    canonical_revenue, canonical_net_profit, canonical_gross_profit,
-                    canonical_cogs, canonical_opex,
-                ] if v is not None and v > 0]
-                # Per-period money targets
-                for _k in periods_keys:
-                    for _pfx in ('revenue_', 'net_profit_', 'gross_profit_', 'cogs_', 'opex_'):
-                        _pv = clean(d.get(_pfx + _k))
-                        if _pv is not None and _pv > 0:
-                            _kt_money_tgts.append(_pv)
-                # Percentage targets
-                _kt_pct_tgts = [v for v in [canonical_net_margin, canonical_gross_margin] if v is not None]
-
-                _kt_mpat = re.compile(r'£([\d,]+(?:\.\d+)?)(k)?', re.IGNORECASE)
-                _kt_ppat = re.compile(r'(\d+(?:\.\d+)?)\s*%')
-
-                def _kt_msub(m):
-                    try:
-                        amt = float(m.group(1).replace(',', ''))
-                        if m.group(2): amt *= 1000
-                    except Exception:
-                        return m.group(0)
-                    for tgt in _kt_money_tgts:
-                        if abs(amt - tgt) / tgt <= 0.20:
-                            if m.group(2):
-                                kv = tgt / 1000
-                                return f'£{kv:.0f}k' if kv == int(kv) else f'£{kv:.1f}k'
-                            return fmt(tgt)
-                    return m.group(0)
-
-                def _kt_psub(m):
-                    val = float(m.group(1))
-                    for tgt in _kt_pct_tgts:
-                        if tgt != 0 and abs(val - tgt) / abs(tgt) <= 0.20:
-                            return f'{tgt:.1f}%' if '.' in m.group(1) else f'{tgt:.0f}%'
-                    return m.group(0)
-
-                def _clean_kt(text):
-                    text = _kt_mpat.sub(_kt_msub, str(text))
-                    text = _kt_ppat.sub(_kt_psub, text)
-                    return text
-
-                d['key_takeaways'] = [_clean_kt(str(item)) for item in _kt_raw]
+                d['key_takeaways'] = [_fig_clean(str(item), tol=0.25) for item in _kt_raw]
     except Exception:
         pass
 
@@ -3120,6 +3116,16 @@ def build_report(d):
 
     raw_flags = str(d.get('flags',''))
     flag_lines = [f.strip() for f in raw_flags.replace('FLAGSEP','\n').split('\n') if '|' in f and len(f.strip())>3]
+    # Apply canonical figure replacement to each flag body (20% tolerance)
+    _cleaned_fls = []
+    for _fl in flag_lines:
+        _fl_parts = _fl.split('|')
+        if len(_fl_parts) >= 3:
+            _fl_parts[2] = _fig_clean(_fl_parts[2].strip())
+            _cleaned_fls.append('|'.join(_fl_parts))
+        else:
+            _cleaned_fls.append(_fl)
+    flag_lines = _cleaned_fls
     if flag_lines:
         toc_sections.append('Flags & Items to Watch')
     if has_notes:
