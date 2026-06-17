@@ -104,6 +104,23 @@ def fmtp(n):
     if v > 1: v = v/100
     return f'{v:.1%}'
 
+_MONTH_CORRECTIONS = {
+    'mur': 'Mar', 'jab': 'Jan', 'fab': 'Feb', 'arp': 'Apr', 'mei': 'May',
+    'jly': 'Jul', 'agu': 'Aug', 'okt': 'Oct',
+}
+
+def normalise_period_label(label):
+    if label is None:
+        return ''
+    lbl = str(label).strip()
+    if not lbl:
+        return lbl
+    lbl = lbl[0].upper() + lbl[1:].lower() if len(lbl) > 1 else lbl.upper()
+    key = lbl[:3].lower()
+    if key in _MONTH_CORRECTIONS:
+        lbl = _MONTH_CORRECTIONS[key] + lbl[3:]
+    return lbl[:6]
+
 def get_list(d, key):
     raw = d.get(key)
     if raw is None: return []
@@ -151,7 +168,7 @@ def bar_chart(labels, values, w=100, h=50, show_trend=False, C_ACCENT=None):
         x = 10*mm + i*(bw+gap)
         bh = (v/maxv)*chart_h if maxv > 0 else 1
         dw.add(Rect(x, base_y, bw, max(bh,1), fillColor=c, strokeColor=None))
-        dw.add(String(x+bw/2, base_y-8*mm, str(l)[:6], fontSize=6.5, fillColor=GRAY, textAnchor='middle'))
+        dw.add(String(x+bw/2, base_y-8*mm, normalise_period_label(l), fontSize=6.5, fillColor=GRAY, textAnchor='middle'))
         lab = f'£{v/1000:.0f}k' if v >= 1000 else f'£{v:.0f}'
         dw.add(String(x+bw/2, base_y+max(bh,1)+1.5*mm, lab, fontSize=6.5, fillColor=NAVY, textAnchor='middle', fontName=FONT_SANS_BOLD))
         if has_peak and avg > 0 and v > avg * 1.2:
@@ -1491,12 +1508,14 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
         st=ST_BOLD if bold else (s('sub',fontSize=7.5,textColor=GRAY,leading=11) if sub else ST_TD_L)
         return Paragraph(p+str(txt),st)
     def cat(txt):
-        return [Paragraph(txt,s('cat',fontName=FONT_SANS_BOLD,fontSize=7.5,textColor=TEAL,leading=11))] + ['']*(ncols+2)
+        _sp = s('sp', fontSize=2, leading=2)
+        return [Paragraph(txt,s('cat',fontName=FONT_SANS_BOLD,fontSize=7.5,textColor=TEAL,leading=11))] + [Paragraph('', _sp)]*(ncols+2)
     def blank():
-        return [Paragraph(' ',s('sp',fontSize=2,leading=2))] + [' ']*(ncols+2)
+        _sp = s('sp', fontSize=2, leading=2)
+        return [Paragraph('', _sp)] + [Paragraph('', _sp)] * (ncols + 2)
 
     hdr = [th('', False)]
-    for p in periods: hdr.append(th(str(p)[:6]))
+    for p in periods: hdr.append(th(normalise_period_label(p)))
     hdr.append(th('Total'))
     hdr.append(th('Avg'))
 
@@ -1525,6 +1544,7 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
     if revenue_items:
         rows.append(cat('REVENUE')); cat_rows.append(len(rows)-1)
         for it in revenue_items: rows.append(item_row(it))
+        rows.append(blank()); blank_rows.append(len(rows)-1)
         tr = {'label':'Total Revenue','values':[d.get('revenue_'+k) for k in periods_keys] if show_periods else [],'total':d.get('total_revenue')}
         rows.append(item_row(tr, bold=True, indent=False)); teal_rows.append(len(rows)-1)
         rows.append(blank()); blank_rows.append(len(rows)-1)
@@ -1540,6 +1560,7 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
             sum(clean(it.get('values',[None]*99)[i]) or 0 for it in cogs_items if i < len(it.get('values',[])))
             for i in range(ncols)
         ]
+        rows.append(blank()); blank_rows.append(len(rows)-1)
         rows.append(item_row({'label':'Total COGS','values':cogs_period_vals,'total':cogs_total}, bold=True, indent=False))
         teal_rows.append(len(rows)-1)
         rows.append(blank()); blank_rows.append(len(rows)-1)
@@ -1568,11 +1589,13 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
         if opex_tv and total_rv and total_rv > 0:
             opex_pct_sub = f'  <font name="{FONT_SANS}" size="6.5" color="#9CA3AF">{opex_tv/total_rv*100:.1f}% of rev</font>'
         opex_lbl = Paragraph(f'Total Operating Expenses{opex_pct_sub}', ST_BOLD)
+        rows.append(blank()); blank_rows.append(len(rows)-1)
         rows.append(item_row({'label':'Total Operating Expenses','values':opex_period_vals,'total':opex_total}, bold=True, indent=False, lbl_override=opex_lbl))
         teal_rows.append(len(rows)-1)
         rows.append(blank()); blank_rows.append(len(rows)-1)
 
     np_row = {'label':'NET PROFIT','values':[d.get('net_profit_'+k) for k in periods_keys] if show_periods else [],'total':d.get('net_profit')}
+    rows.append(blank()); blank_rows.append(len(rows)-1)
     rows.append(item_row(np_row, bold=True, indent=False))
     net_row_idx = len(rows)-1
     if has_val(d.get('net_margin')):
@@ -1633,10 +1656,12 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         return Paragraph(p+txt,st)
     def cat(txt):
         ncols_total = len(periods)+3
-        return [Paragraph(txt,s('cat',fontName=FONT_SANS_BOLD,fontSize=7.5,textColor=C_ACCENT,leading=11))] + ['']*(ncols_total-1)
+        _sp = s('sp', fontSize=2, leading=2)
+        return [Paragraph(txt,s('cat',fontName=FONT_SANS_BOLD,fontSize=7.5,textColor=C_ACCENT,leading=11))] + [Paragraph('', _sp)]*(ncols_total-1)
     def blank():
         ncols_total = len(periods)+3
-        return [Paragraph(' ',s('sp',fontSize=2,leading=2))] + [' ']*(ncols_total-1)
+        _sp = s('sp', fontSize=2, leading=2)
+        return [Paragraph('', _sp)] + [Paragraph('', _sp)] * (ncols_total - 1)
 
     ncols = len(periods)
     prev_period_label = str(d.get('previous_period','Prev'))[:8]
@@ -1652,7 +1677,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         return it.get('total') if it else None
 
     hdr = [th('',False)]
-    for p in periods: hdr.append(th(p[:3]))
+    for p in periods: hdr.append(th(normalise_period_label(p)))
     hdr += [th('Current'), th(prev_period_label), th('Chg %')]
 
     gray_s    = s('rem_lbl', fontName=FONT_SANS, fontSize=8,
@@ -1720,6 +1745,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         tr_row=[label('Total Revenue',bold=True)]
         for k in periods_keys: tr_row.append(money(d.get('revenue_'+k),True))
         tr_row+=[money(tr_curr,True),money(tr_prev,True),pct_change(tr_curr,tr_prev,True)]
+        rows.append(blank()); blank_rows.append(len(rows)-1)
         rows.append(tr_row); teal_rows.append(len(rows)-1)
         rows.append(blank()); blank_rows.append(len(rows)-1)
 
@@ -1728,7 +1754,8 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         for it in cogs_items: rows.append(item_row(it,prev_cogs_items))
         for rr in removed_rows(cogs_items, prev_cogs_items): rows.append(rr)
         tc_curr=d.get('total_cogs'); tc_prev=d.get('prev_total_cogs')
-        rows.append([label('Total COGS',bold=True)]+['—']*ncols+[money(tc_curr,True),money(tc_prev,True),pct_change(tc_curr,tc_prev,True)])
+        rows.append(blank()); blank_rows.append(len(rows)-1)
+        rows.append([label('Total COGS',bold=True)]+[money(None,True)]*ncols+[money(tc_curr,True),money(tc_prev,True),pct_change(tc_curr,tc_prev,True)])
         teal_rows.append(len(rows)-1)
         rows.append(blank()); blank_rows.append(len(rows)-1)
 
@@ -1745,7 +1772,8 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         for it in opex_items: rows.append(item_row(it,prev_opex_items))
         for rr in removed_rows(opex_items, prev_opex_items): rows.append(rr)
         to_curr=d.get('total_opex'); to_prev=d.get('prev_total_opex')
-        rows.append([label('Total OpEx',bold=True)]+['—']*ncols+[money(to_curr,True),money(to_prev,True),pct_change(to_curr,to_prev,True)])
+        rows.append(blank()); blank_rows.append(len(rows)-1)
+        rows.append([label('Total OpEx',bold=True)]+[money(None,True)]*ncols+[money(to_curr,True),money(to_prev,True),pct_change(to_curr,to_prev,True)])
         teal_rows.append(len(rows)-1)
         rows.append(blank()); blank_rows.append(len(rows)-1)
 
@@ -1753,6 +1781,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
     np_row=[label('NET PROFIT',bold=True)]
     for k in periods_keys: np_row.append(money(d.get('net_profit_'+k),True))
     np_row+=[money(np_curr,True),money(np_prev,True),pct_change(np_curr,np_prev,True)]
+    rows.append(blank()); blank_rows.append(len(rows)-1)
     rows.append(np_row)
     net_idx=len(rows)-1
     if has_val(d.get('net_margin')):
@@ -2318,6 +2347,7 @@ def next_90_days_section(d, C_ACCENT):
             if isinstance(actions, str):
                 try: actions = json.loads(actions)
                 except Exception: actions = [a.strip() for a in actions.split('|') if a.strip()]
+        using_recs_fallback = False
         if not actions or not isinstance(actions, list) or not any(str(a).strip() for a in actions):
             recs = d.get('recommendations')
             if recs:
@@ -2325,11 +2355,14 @@ def next_90_days_section(d, C_ACCENT):
                     try: recs = json.loads(recs)
                     except Exception: recs = [r.strip() for r in recs.split('|') if r.strip()]
                 actions = recs if isinstance(recs, list) else []
+                using_recs_fallback = True
         if not actions:
             return []
         actions = [str(a).strip() for a in actions if str(a).strip()][:3]
         if not actions:
             return []
+        if using_recs_fallback:
+            actions = [f'Focus on this in the next 90 days: {a}' for a in actions]
 
         items = []
         for i, action in enumerate(actions, 1):
@@ -2825,7 +2858,7 @@ def build_report(d):
             margin_rows += [[Paragraph('Net Margin by Period',ST_SMALL)]]
             palette=[RED_TEXT,GOLD,GREEN_TEXT,TEAL,colors.HexColor('#0B6E60'),NAVY]
             for i,(p,v) in enumerate(nm_period):
-                margin_rows += [[margin_bar(v, p, palette[i%len(palette)])],[Spacer(1,1*mm)]]
+                margin_rows += [[margin_bar(v, normalise_period_label(p), palette[i%len(palette)])],[Spacer(1,1*mm)]]
         rev_with_totals = [it for it in revenue_items if has_val(it.get('total'))]
         if len(rev_with_totals) >= 2:
             grand = sum(clean(it.get('total')) for it in rev_with_totals)
