@@ -1532,8 +1532,12 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
                 row.append(Paragraph('—', ST_BOLD_R if bold else ST_TD))
             else:
                 row.append(money(v, bold))
-        row.append(money(item.get('total'), bold or True))
-        total_v = clean(item.get('total'))
+        _vsum    = sum(clean(v) or 0 for v in vals) if vals else 0
+        _raw_tot = clean(item.get('total'))
+        total_v  = (_raw_tot
+                    if _raw_tot is None or not vals or abs(_raw_tot - _vsum) <= 1
+                    else _vsum)
+        row.append(money(total_v if total_v is not None else item.get('total'), bold or True))
         if total_v is not None and ncols > 0:
             row.append(money(total_v / ncols, bold))
         else:
@@ -2508,11 +2512,14 @@ def build_report(d):
 
     periods_raw = d.get('periods','')
     if isinstance(periods_raw, list):
-        periods_full = [str(p) for p in periods_raw if str(p).strip()]
+        periods_full = [str(p).strip() for p in periods_raw if str(p).strip()]
+    elif isinstance(periods_raw, (int, float)) or str(periods_raw).strip().lstrip('-').isdigit():
+        periods_full = []  # numeric count supplied, not period names — no columns
     else:
-        periods_full = [p.strip() for p in str(periods_raw).split(',') if p.strip()]
+        periods_full = [p.strip() for p in str(periods_raw).split(',')
+                        if p.strip() and not p.strip().lstrip('-').isdigit()]
     periods_full = periods_full[:6]
-    periods = [p[:3] for p in periods_full]
+    periods = [normalise_period_label(p) for p in periods_full]
     periods_keys = [p.lower().replace(' ','') for p in periods_full]
 
     revenue_items = get_list(d, 'revenue_items')
@@ -2544,23 +2551,50 @@ def build_report(d):
     cogs_items = _new_cogs
     opex_items = opex_items + _bump_opex
 
-    # ── Bottom-up totals: recalculate from items, override Claude's values ────
-    def _items_total(items):
-        tot = sum(clean(it.get('total')) or 0 for it in items)
-        return tot if tot > 0 else None
+    # ── Canonical single-source-of-truth values (bottom-up from items) ───────
+    _claude_raw_rev = clean(d.get('total_revenue'))  # save before any overwrite
 
-    _bt_rev  = _items_total(revenue_items)
-    _bt_cogs = _items_total(cogs_items)
-    _bt_opex = _items_total(opex_items)
-    if _bt_rev  is not None: d['total_revenue'] = _bt_rev
-    if _bt_cogs is not None: d['total_cogs']    = _bt_cogs
-    if _bt_opex is not None: d['total_opex']    = _bt_opex
-    _tr2 = clean(d.get('total_revenue'))
-    _tc2 = clean(d.get('total_cogs'))  or 0
-    _to2 = clean(d.get('total_opex'))  or 0
-    if _tr2 is not None:
-        d['gross_profit'] = _tr2 - _tc2
-        d['net_profit']   = _tr2 - _tc2 - _to2
+    def _it_total(it):
+        """Canonical per-item total: prefer values-sum when it differs from total field by >£1."""
+        raw_t = clean(it.get('total'))
+        _vals = it.get('values', [])
+        _vsum = sum(clean(v) or 0 for v in _vals) if _vals else 0
+        if raw_t is None:
+            return _vsum if _vsum > 0 else None
+        if _vals and abs(raw_t - _vsum) > 1:
+            return _vsum  # values sum is authoritative for column/row consistency
+        return raw_t
+
+    canonical_revenue      = sum(_it_total(it) or 0 for it in revenue_items) or None
+    canonical_cogs         = sum(_it_total(it) or 0 for it in cogs_items)    or None
+    canonical_opex         = sum(_it_total(it) or 0 for it in opex_items)    or None
+    _cr  = canonical_revenue or 0
+    _cc  = canonical_cogs    or 0
+    _co  = canonical_opex    or 0
+    canonical_gross_profit = (_cr - _cc)         if canonical_revenue is not None else None
+    canonical_net_profit   = (_cr - _cc - _co)   if canonical_revenue is not None else None
+    canonical_gross_margin = ((_cr - _cc) / _cr * 100) if _cr > 0 else None
+    canonical_net_margin   = ((_cr - _cc - _co) / _cr * 100) if _cr > 0 else None
+
+    # Write every canonical value to d so all downstream d.get() reads are consistent
+    if canonical_revenue      is not None: d['total_revenue'] = canonical_revenue
+    if canonical_cogs         is not None: d['total_cogs']    = canonical_cogs
+    if canonical_opex         is not None: d['total_opex']    = canonical_opex
+    if canonical_gross_profit is not None: d['gross_profit']  = canonical_gross_profit
+    if canonical_net_profit   is not None: d['net_profit']    = canonical_net_profit
+    if canonical_gross_margin is not None: d['gross_margin']  = canonical_gross_margin
+    if canonical_net_margin   is not None: d['net_margin']    = canonical_net_margin
+
+    # Narrative consistency: prepend note when canonical revenue diverges from Claude's raw value
+    if (_claude_raw_rev is not None and canonical_revenue is not None and
+            _claude_raw_rev > 0 and
+            abs(_claude_raw_rev - canonical_revenue) / _claude_raw_rev > 0.01):
+        _exec = str(d.get('executive_summary', '')).strip()
+        if _exec and _exec.upper() not in ('NA', 'N/A', 'NONE', ''):
+            d['executive_summary'] = (
+                'Note: figures in this report have been recalculated from line item data '
+                'for accuracy. ' + _exec
+            )
 
     # ── Per-period recalculation: validate Claude values against item sums ────
     for i, k in enumerate(periods_keys):
@@ -2667,6 +2701,8 @@ def build_report(d):
     if has_forecast:
         toc_sections.append('Forecast')
     # ── Matrix cross-foot validation ─────────────────────────────────────────
+    # After canonical recalculation, net_profit_k is always derived as
+    # revenue_k - cogs_k - opex_k, so this check only fires on genuine bugs.
     _crossfoot_fail = False
     for _k in periods_keys:
         _r = clean(d.get('revenue_' + _k)) or 0
@@ -2676,15 +2712,6 @@ def build_report(d):
         if _n is not None and abs(_r - _c - _o - _n) > 1:
             _crossfoot_fail = True
             break
-    if not _crossfoot_fail:
-        for _it in revenue_items + cogs_items + opex_items:
-            _it_total = clean(_it.get('total'))
-            _it_vals  = _it.get('values', [])
-            if _it_total is not None and _it_vals:
-                _it_sum = sum(clean(v) or 0 for v in _it_vals)
-                if _it_sum > 0 and abs(_it_total - _it_sum) > 1:
-                    _crossfoot_fail = True
-                    break
 
     raw_flags = str(d.get('flags',''))
     flag_lines = [f.strip() for f in raw_flags.replace('FLAGSEP','\n').split('\n') if '|' in f and len(f.strip())>3]
