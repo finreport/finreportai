@@ -1544,6 +1544,17 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
             row.append(Paragraph('—', ST_BOLD_R if bold else ST_TD))
         return row
 
+    # ── Period values: always derived from items, never from d scalars ───────
+    def _pvs(items):
+        return [sum(clean(it.get('values',[None]*99)[i]) or 0
+                    for it in items if i < len(it.get('values',[])))
+                for i in range(ncols)]
+    rev_pvs  = _pvs(revenue_items) if show_periods else []
+    cogs_pvs = _pvs(cogs_items)    if show_periods else []
+    opex_pvs = _pvs(opex_items)    if show_periods else []
+    gp_pvs   = [rev_pvs[i] - cogs_pvs[i] for i in range(ncols)] if show_periods else []
+    np_pvs   = [rev_pvs[i] - cogs_pvs[i] - opex_pvs[i] for i in range(ncols)] if show_periods else []
+
     rows = [hdr]
     cat_rows = []
     teal_rows = []
@@ -1553,28 +1564,22 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
         rows.append(cat('REVENUE')); cat_rows.append(len(rows)-1)
         for it in revenue_items: rows.append(item_row(it))
         rows.append(blank()); blank_rows.append(len(rows)-1)
-        tr = {'label':'Total Revenue','values':[d.get('revenue_'+k) for k in periods_keys] if show_periods else [],'total':d.get('total_revenue')}
+        tr = {'label':'Total Revenue','values':rev_pvs,'total':d.get('total_revenue')}
         rows.append(item_row(tr, bold=True, indent=False)); teal_rows.append(len(rows)-1)
         rows.append(blank()); blank_rows.append(len(rows)-1)
 
     if cogs_items or has_val(d.get('total_cogs')):
         rows.append(cat('COST OF GOODS SOLD')); cat_rows.append(len(rows)-1)
         for it in cogs_items: rows.append(item_row(it))
-        cogs_total = d.get('total_cogs')
-        if not has_val(cogs_total) and cogs_items:
-            ssum = sum(clean(it.get('total')) or 0 for it in cogs_items)
-            cogs_total = ssum if ssum>0 else None
-        cogs_period_vals = [
-            sum(clean(it.get('values',[None]*99)[i]) or 0 for it in cogs_items if i < len(it.get('values',[])))
-            for i in range(ncols)
-        ]
+        cogs_total = d.get('total_cogs') or (sum(cogs_pvs) if cogs_pvs else None)
         rows.append(blank()); blank_rows.append(len(rows)-1)
-        rows.append(item_row({'label':'Total COGS','values':cogs_period_vals,'total':cogs_total}, bold=True, indent=False))
+        rows.append(item_row({'label':'Total COGS','values':cogs_pvs,'total':cogs_total}, bold=True, indent=False))
         teal_rows.append(len(rows)-1)
         rows.append(blank()); blank_rows.append(len(rows)-1)
 
-    if has_val(d.get('gross_profit')):
-        gp = {'label':'GROSS PROFIT','values':[d.get('gross_profit_'+k) for k in periods_keys] if show_periods else [],'total':d.get('gross_profit')}
+    if has_val(d.get('gross_profit')) or gp_pvs:
+        gp_total = d.get('gross_profit') or (sum(gp_pvs) if gp_pvs else None)
+        gp = {'label':'GROSS PROFIT','values':gp_pvs,'total':gp_total}
         rows.append(item_row(gp, bold=True, indent=False)); teal_rows.append(len(rows)-1)
         if has_val(d.get('gross_margin')):
             rows.append([label('Gross Margin %', sub=True)] + [td('—')]*ncols + [td(fmtp(d.get('gross_margin')))] + [td('—')])
@@ -1583,31 +1588,29 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
     if opex_items or has_val(d.get('total_opex')):
         rows.append(cat('OPERATING EXPENSES')); cat_rows.append(len(rows)-1)
         for it in opex_items: rows.append(item_row(it))
-        opex_total = d.get('total_opex')
-        if not has_val(opex_total) and opex_items:
-            ssum = sum(clean(it.get('total')) or 0 for it in opex_items)
-            opex_total = ssum if ssum>0 else None
-        opex_period_vals = [
-            sum(clean(it.get('values',[None]*99)[i]) or 0 for it in opex_items if i < len(it.get('values',[])))
-            for i in range(ncols)
-        ]
+        opex_total = d.get('total_opex') or (sum(opex_pvs) if opex_pvs else None)
         opex_tv = clean(opex_total)
         total_rv = clean(d.get('total_revenue'))
         rows.append(blank()); blank_rows.append(len(rows)-1)
-        rows.append(item_row({'label':'Total Operating Expenses','values':opex_period_vals,'total':opex_total}, bold=True, indent=False))
+        rows.append(item_row({'label':'Total Operating Expenses','values':opex_pvs,'total':opex_total}, bold=True, indent=False))
         teal_rows.append(len(rows)-1)
         if opex_tv is not None and total_rv is not None and total_rv != 0:
             opex_pct = opex_tv / total_rv * 100
             rows.append([label('OpEx % of Revenue', sub=True)] + [td('—')]*ncols + [td(fmtp(opex_pct))] + [td('—')])
         rows.append(blank()); blank_rows.append(len(rows)-1)
 
-    np_row = {'label':'NET PROFIT','values':[d.get('net_profit_'+k) for k in periods_keys] if show_periods else [],'total':d.get('net_profit')}
+    np_total = d.get('net_profit') or (sum(np_pvs) if np_pvs else None)
+    np_row = {'label':'NET PROFIT','values':np_pvs,'total':np_total}
     rows.append(blank()); blank_rows.append(len(rows)-1)
     rows.append(item_row(np_row, bold=True, indent=False))
     net_row_idx = len(rows)-1
     if has_val(d.get('net_margin')):
-        nm_vals = [fmtp(d.get('net_margin_'+k)) for k in periods_keys] if show_periods else []
-        rows.append([label('Net Margin %', sub=True)] + [td(x) for x in nm_vals] + [td(fmtp(d.get('net_margin')))] + [td('—')])
+        nm_pvs = []
+        for i in range(ncols):
+            _r = rev_pvs[i] if i < len(rev_pvs) else 0
+            _n = np_pvs[i]  if i < len(np_pvs)  else 0
+            nm_pvs.append(fmtp(_n / _r * 100) if _r > 0 else '—')
+        rows.append([label('Net Margin %', sub=True)] + [td(x) for x in nm_pvs] + [td(fmtp(d.get('net_margin')))] + [td('—')])
 
     # Data sources footnote
     period_labels = ', '.join(periods_full if periods_full else periods)
@@ -1740,6 +1743,17 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
                 result.append(row)
         return result
 
+    # ── Period values from items (never from d scalars) ──────────────────────
+    def _cpvs(items):
+        return [sum(clean(it.get('values',[None]*99)[i]) or 0
+                    for it in items if i < len(it.get('values',[])))
+                for i in range(ncols)]
+    c_rev_pvs  = _cpvs(revenue_items)
+    c_cogs_pvs = _cpvs(cogs_items)
+    c_opex_pvs = _cpvs(opex_items)
+    c_gp_pvs   = [c_rev_pvs[i] - c_cogs_pvs[i] for i in range(ncols)]
+    c_np_pvs   = [c_rev_pvs[i] - c_cogs_pvs[i] - c_opex_pvs[i] for i in range(ncols)]
+
     rows = [hdr]
     teal_rows=[]
     blank_rows=[]
@@ -1750,7 +1764,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         for rr in removed_rows(revenue_items, prev_revenue_items): rows.append(rr)
         tr_curr=d.get('total_revenue'); tr_prev=d.get('prev_total_revenue')
         tr_row=[label('Total Revenue',bold=True)]
-        for k in periods_keys: tr_row.append(money(d.get('revenue_'+k),True))
+        for i in range(ncols): tr_row.append(money(c_rev_pvs[i] if i < len(c_rev_pvs) else None,True))
         tr_row+=[money(tr_curr,True),money(tr_prev,True),pct_change(tr_curr,tr_prev,True)]
         rows.append(blank()); blank_rows.append(len(rows)-1)
         rows.append(tr_row); teal_rows.append(len(rows)-1)
@@ -1762,13 +1776,13 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         for rr in removed_rows(cogs_items, prev_cogs_items): rows.append(rr)
         tc_curr=d.get('total_cogs'); tc_prev=d.get('prev_total_cogs')
         rows.append(blank()); blank_rows.append(len(rows)-1)
-        rows.append([label('Total COGS',bold=True)]+[money(None,True)]*ncols+[money(tc_curr,True),money(tc_prev,True),pct_change(tc_curr,tc_prev,True)])
+        rows.append([label('Total COGS',bold=True)]+[money(c_cogs_pvs[i] if i < len(c_cogs_pvs) else None,True) for i in range(ncols)]+[money(tc_curr,True),money(tc_prev,True),pct_change(tc_curr,tc_prev,True)])
         teal_rows.append(len(rows)-1)
         rows.append(blank()); blank_rows.append(len(rows)-1)
 
-    if has_val(d.get('gross_profit')):
+    if has_val(d.get('gross_profit')) or c_gp_pvs:
         gp_curr=d.get('gross_profit'); gp_prev=d.get('prev_gross_profit')
-        rows.append([label('GROSS PROFIT',bold=True)]+[money(d.get('gross_profit_'+k),True) for k in periods_keys]+[money(gp_curr,True),money(gp_prev,True),pct_change(gp_curr,gp_prev,True)])
+        rows.append([label('GROSS PROFIT',bold=True)]+[money(c_gp_pvs[i] if i < len(c_gp_pvs) else None,True) for i in range(ncols)]+[money(gp_curr,True),money(gp_prev,True),pct_change(gp_curr,gp_prev,True)])
         teal_rows.append(len(rows)-1)
         if has_val(d.get('gross_margin')):
             rows.append([label('Gross Margin %',sub=True)]+['—']*ncols+[td(fmtp(d.get('gross_margin'))),td(fmtp(d.get('prev_gross_margin'))),td('—')])
@@ -1780,19 +1794,21 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         for rr in removed_rows(opex_items, prev_opex_items): rows.append(rr)
         to_curr=d.get('total_opex'); to_prev=d.get('prev_total_opex')
         rows.append(blank()); blank_rows.append(len(rows)-1)
-        rows.append([label('Total OpEx',bold=True)]+[money(None,True)]*ncols+[money(to_curr,True),money(to_prev,True),pct_change(to_curr,to_prev,True)])
+        rows.append([label('Total OpEx',bold=True)]+[money(c_opex_pvs[i] if i < len(c_opex_pvs) else None,True) for i in range(ncols)]+[money(to_curr,True),money(to_prev,True),pct_change(to_curr,to_prev,True)])
         teal_rows.append(len(rows)-1)
         rows.append(blank()); blank_rows.append(len(rows)-1)
 
     np_curr=d.get('net_profit'); np_prev=d.get('prev_net_profit')
     np_row=[label('NET PROFIT',bold=True)]
-    for k in periods_keys: np_row.append(money(d.get('net_profit_'+k),True))
+    for i in range(ncols): np_row.append(money(c_np_pvs[i] if i < len(c_np_pvs) else None,True))
     np_row+=[money(np_curr,True),money(np_prev,True),pct_change(np_curr,np_prev,True)]
     rows.append(blank()); blank_rows.append(len(rows)-1)
     rows.append(np_row)
     net_idx=len(rows)-1
     if has_val(d.get('net_margin')):
-        rows.append([label('Net Margin %',sub=True)]+[td(fmtp(d.get('net_margin_'+k))) for k in periods_keys]+[td(fmtp(d.get('net_margin'))),td(fmtp(d.get('prev_net_margin'))),td('—')])
+        c_nm_pvs = [fmtp(c_np_pvs[i] / c_rev_pvs[i] * 100) if i < len(c_rev_pvs) and c_rev_pvs[i] > 0 else '—'
+                    for i in range(ncols)]
+        rows.append([label('Net Margin %',sub=True)]+[td(x) for x in c_nm_pvs]+[td(fmtp(d.get('net_margin'))),td(fmtp(d.get('prev_net_margin'))),td('—')])
 
     # Data sources footnote
     ncols_total = ncols + 3
@@ -2551,8 +2567,34 @@ def build_report(d):
     cogs_items = _new_cogs
     opex_items = opex_items + _bump_opex
 
+    # ── Deduplicate items: merge rows with identical labels element-wise ──────
+    def _dedup(items):
+        seen_order = []
+        merged = {}
+        for it in items:
+            lbl = str(it.get('label', '')).strip().lower()
+            if lbl not in merged:
+                merged[lbl] = {'label': it.get('label', ''),
+                               'values': [clean(v) or 0 for v in it.get('values', [])],
+                               'total': clean(it.get('total'))}
+                seen_order.append(lbl)
+            else:
+                ex = merged[lbl]
+                ev = ex['values']; nv = [clean(v) or 0 for v in it.get('values', [])]
+                ln = max(len(ev), len(nv))
+                ex['values'] = [(ev[j] if j < len(ev) else 0) + (nv[j] if j < len(nv) else 0)
+                                for j in range(ln)]
+                nt = clean(it.get('total'))
+                ex['total'] = (ex['total'] or 0) + (nt or 0)
+        return [merged[lbl] for lbl in seen_order]
+
+    revenue_items = _dedup(revenue_items)
+    cogs_items    = _dedup(cogs_items)
+    opex_items    = _dedup(opex_items)
+
     # ── Canonical single-source-of-truth values (bottom-up from items) ───────
     _claude_raw_rev = clean(d.get('total_revenue'))  # save before any overwrite
+    _claude_raw_nm  = clean(d.get('net_margin'))     # save before any overwrite
 
     def _it_total(it):
         """Canonical per-item total: prefer values-sum when it differs from total field by >£1."""
@@ -2585,16 +2627,21 @@ def build_report(d):
     if canonical_gross_margin is not None: d['gross_margin']  = canonical_gross_margin
     if canonical_net_margin   is not None: d['net_margin']    = canonical_net_margin
 
-    # Narrative consistency: prepend note when canonical revenue diverges from Claude's raw value
-    if (_claude_raw_rev is not None and canonical_revenue is not None and
-            _claude_raw_rev > 0 and
-            abs(_claude_raw_rev - canonical_revenue) / _claude_raw_rev > 0.01):
+    # Narrative consistency: prepend note when canonical values diverge from Claude's raw values
+    _rev_diverged = (canonical_revenue is not None and _claude_raw_rev is not None and
+                     _claude_raw_rev > 0 and
+                     abs(_claude_raw_rev - canonical_revenue) / _claude_raw_rev > 0.01)
+    _nm_diverged  = (canonical_net_margin is not None and _claude_raw_nm is not None and
+                     abs(canonical_net_margin - (_claude_raw_nm if _claude_raw_nm > 1 else _claude_raw_nm * 100)) > 5)
+    if _rev_diverged or _nm_diverged:
         _exec = str(d.get('executive_summary', '')).strip()
         if _exec and _exec.upper() not in ('NA', 'N/A', 'NONE', ''):
-            d['executive_summary'] = (
-                'Note: figures in this report have been recalculated from line item data '
-                'for accuracy. ' + _exec
+            _note = (
+                f'Note: figures in this report have been recalculated from line item data for accuracy '
+                f'(Revenue: {fmt(canonical_revenue)}, Net Profit: {fmt(canonical_net_profit)}, '
+                f'Net Margin: {fmtp(canonical_net_margin)}). '
             )
+            d['executive_summary'] = _note + _exec
 
     # ── Per-period recalculation: validate Claude values against item sums ────
     for i, k in enumerate(periods_keys):
