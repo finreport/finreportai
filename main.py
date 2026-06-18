@@ -2693,6 +2693,10 @@ def build_report(d):
     revenue_items = get_list(d, 'revenue_items')
     cogs_items    = get_list(d, 'cogs_items')
     opex_items    = get_list(d, 'opex_items')
+    print(f"[initial revenue_items] {[it.get('label','?') for it in revenue_items]}", flush=True)
+    print(f"[initial opex_items] {[it.get('label','?') for it in opex_items]}", flush=True)
+    # Store original revenue labels before any reclassification (used by purity guard below)
+    _orig_rev_labels = set(_norm_label(str(it.get('label', ''))) for it in revenue_items)
     prev_revenue_items = get_list(d, 'prev_revenue_items')
     prev_cogs_items    = get_list(d, 'prev_cogs_items')
     prev_opex_items    = get_list(d, 'prev_opex_items')
@@ -2848,7 +2852,7 @@ def build_report(d):
         _ll = _label_lower(_it)
         _nl = _norm_label(_ll)
         if any(_labels_match(_nl, _oon) for _oon in _orig_opex_norms):
-            _new_cogs.append(_it)  # already in opex — leave in cogs, don't reclassify
+            pass  # already classified in opex — silently remove from cogs
         elif any(kw in _ll for kw in _OPEX_KW):
             _bump_opex.append(_it)
         else:
@@ -2867,12 +2871,40 @@ def build_report(d):
         if not nl: return False
         if clean(it.get('total')) == 0 and not any(clean(v) for v in it.get('values', [])):
             return False
-        return any(_edit_dist(nl, ol) <= 3 for ol in _all_orig_labels)
+        if any(_edit_dist(nl, ol) <= 3 for ol in _all_orig_labels):
+            return True
+        # Also protect reclassified items whose label contains a known classification
+        # keyword — these are genuinely typed items that may have shifted buckets
+        _ll = str(it.get('label', '')).lower()
+        return any(kw in _ll for kw in _OPEX_KW + _COGS_KW)
 
     revenue_items = [it for it in revenue_items if _is_genuine(it)]
     cogs_items    = [it for it in cogs_items    if _is_genuine(it)]
     opex_items    = [it for it in opex_items    if _is_genuine(it)]
-    print(f"[opex_items labels] {[it.get('label','?') for it in opex_items]}", flush=True)
+    print(f"[post-guard opex_items] {[it.get('label','?') for it in opex_items]}", flush=True)
+
+    # ── Revenue purity: blocklist + original-label guard ──────────────────────
+    # Any revenue item containing COGS-type keywords, or not in the original
+    # revenue list, is demoted to cogs immediately.
+    _COGS_BLOCKLIST = ('inventory', 'stock', 'parts', 'components', 'materials',
+                       'beans', 'coffee', 'packaging', 'cost', 'raw', 'ingredient')
+    _pure_rev, _force_to_cogs = [], []
+    for _it in revenue_items:
+        _ll = _label_lower(_it)
+        _nl = _norm_label(_ll)
+        if any(kw in _ll for kw in _COGS_BLOCKLIST) or _nl not in _orig_rev_labels:
+            _force_to_cogs.append(_it)
+        else:
+            _pure_rev.append(_it)
+    revenue_items = _pure_rev
+    _cur_cogs_norms = [_norm_label(str(_it.get('label', ''))) for _it in cogs_items]
+    for _it in _force_to_cogs:
+        _nl = _norm_label(str(_it.get('label', '')))
+        if not any(_labels_match(_nl, _cn) for _cn in _cur_cogs_norms):
+            cogs_items.append(_it)
+            _cur_cogs_norms.append(_nl)
+    print(f"[revenue purity] kept={[it.get('label','?') for it in revenue_items]} forced_to_cogs={[it.get('label','?') for it in _force_to_cogs]}", flush=True)
+    print(f"[final opex_items] {[it.get('label','?') for it in opex_items]}", flush=True)
 
     # ── Step 4: Canonical totals from item.total fields ───────────────────────
     canonical_revenue = sum(clean(it.get('total')) or 0 for it in revenue_items) or None
