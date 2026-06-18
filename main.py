@@ -101,7 +101,7 @@ def fmt(n):
 def fmtp(n):
     v = clean(n)
     if v is None: return 'N/A'
-    if v > 1: v = v/100
+    if abs(v) > 1: v = v/100
     return f'{v:.1%}'
 
 _MONTH_CORRECTIONS = {
@@ -193,7 +193,7 @@ def bar_chart(labels, values, w=100, h=50, show_trend=False, C_ACCENT=None):
 def margin_bar(pct_val, label, color, w=65, h=10):
     v = clean(pct_val)
     if v is None: v = 0
-    if v > 1: v = v/100
+    if abs(v) > 1: v = v/100
     dw = Drawing(w*mm, h*mm); track_w=(w-4)*mm; fill_w=track_w*min(max(v,0),1.0)
     dw.add(Rect(2*mm,3*mm,track_w,4*mm,fillColor=BORDER,strokeColor=None,rx=2,ry=2))
     dw.add(Rect(2*mm,3*mm,fill_w,4*mm,fillColor=color,strokeColor=None,rx=2,ry=2))
@@ -2842,16 +2842,18 @@ def build_report(d):
                              for _ocn in _orig_cogs_norms)]
     cogs_items = cogs_items + _bump_cogs
 
+    _orig_opex_norms = [_norm_label(str(_it.get('label', ''))) for _it in opex_items]
     _new_cogs, _bump_opex = [], []
     for _it in cogs_items:
         _ll = _label_lower(_it)
-        (_bump_opex if any(kw in _ll for kw in _OPEX_KW) else _new_cogs).append(_it)
+        _nl = _norm_label(_ll)
+        if any(_labels_match(_nl, _oon) for _oon in _orig_opex_norms):
+            _new_cogs.append(_it)  # already in opex — leave in cogs, don't reclassify
+        elif any(kw in _ll for kw in _OPEX_KW):
+            _bump_opex.append(_it)
+        else:
+            _new_cogs.append(_it)
     cogs_items = _new_cogs
-    # Guard: discard any reclassified item whose label already exists in Claude's opex_items
-    _orig_opex_norms = [_norm_label(str(_it.get('label', ''))) for _it in opex_items]
-    _bump_opex = [_it for _it in _bump_opex
-                  if not any(_labels_match(_norm_label(str(_it.get('label', ''))), _oon)
-                             for _oon in _orig_opex_norms)]
     opex_items = opex_items + _bump_opex
 
     # Deduplicate again after reclassification (catches cross-bucket duplicates)
@@ -2909,7 +2911,7 @@ def build_report(d):
     if canonical_net_margin   is not None: d['net_margin']    = canonical_net_margin
 
     # ── Shared figure-cleaning helper (flags, key_takeaways, etc.) ──────────────
-    def _fig_clean(text, tol=0.20):
+    def _fig_clean(text, money_tol=0.05, pct_tol=0.10):
         if not text:
             return text
         _m_tgts = [(v, fmt) for v in [
@@ -2928,14 +2930,16 @@ def build_report(d):
                 _p_tgts.append(_pm)
         # Hyphen guard: skip £X in ranges like £X-£Y
         _mpat = re.compile(r'£([\d,]+(?:\.\d+)?)(k)?(?!\s*[-–]\s*£)', re.IGNORECASE)
-        _ppat = re.compile(r'(\d+(?:\.\d+)?)\s*%')
+        _ppat = re.compile(r'(-?\d+(?:\.\d+)?)\s*%')
         def _ms(m):
             try:
                 amt = float(m.group(1).replace(',', '')) * (1000 if m.group(2) else 1)
             except Exception:
                 return m.group(0)
             for tgt, fmtfn in _m_tgts:
-                if abs(amt - tgt) / tgt <= tol:
+                if abs(amt - tgt) / tgt <= money_tol:
+                    if (amt >= 0) != (tgt >= 0):
+                        continue  # sign change guard
                     if m.group(2):
                         kv = tgt / 1000
                         return f'£{kv:.0f}k' if kv == int(kv) else f'£{kv:.1f}k'
@@ -2944,7 +2948,9 @@ def build_report(d):
         def _ps(m):
             val = float(m.group(1))
             for tgt in _p_tgts:
-                if tgt != 0 and abs(val - tgt) / abs(tgt) <= tol:
+                if tgt != 0 and abs(val - tgt) / abs(tgt) <= pct_tol:
+                    if (val >= 0) != (tgt >= 0):
+                        continue  # sign change guard
                     return f'{tgt:.1f}%' if '.' in m.group(1) else f'{tgt:.0f}%'
             return m.group(0)
         text = _mpat.sub(_ms, str(text))
@@ -3041,7 +3047,7 @@ def build_report(d):
                 try:    _kt_raw = json.loads(_kt_raw)
                 except Exception: _kt_raw = [r.strip() for r in _kt_raw.split('|') if r.strip()]
             if isinstance(_kt_raw, list):
-                d['key_takeaways'] = [_fig_clean(str(item), tol=0.25) for item in _kt_raw]
+                d['key_takeaways'] = [_fig_clean(str(item), money_tol=0.05, pct_tol=0.10) for item in _kt_raw]
     except Exception:
         pass
 
@@ -3050,7 +3056,11 @@ def build_report(d):
         _it['total'] = sum(clean(v) or 0 for v in _it.get('values', []))
 
     period_rev = [d.get('revenue_'+k) for k in periods_keys]
-    opex_with_totals = [it for it in opex_items if has_val(it.get('total'))]
+    opex_with_totals = sorted(
+        [it for it in opex_items if has_val(it.get('total'))],
+        key=lambda x: clean(x.get('total')) or 0,
+        reverse=True
+    )
     total_r = canonical_revenue
 
     # ── New field extraction ──────────────────────────────────────────────────
@@ -3116,12 +3126,12 @@ def build_report(d):
 
     raw_flags = str(d.get('flags',''))
     flag_lines = [f.strip() for f in raw_flags.replace('FLAGSEP','\n').split('\n') if '|' in f and len(f.strip())>3]
-    # Apply canonical figure replacement to each flag body (20% tolerance)
+    # Apply canonical figure replacement to each flag body (5% money, 10% pct tolerance)
     _cleaned_fls = []
     for _fl in flag_lines:
         _fl_parts = _fl.split('|')
         if len(_fl_parts) >= 3:
-            _fl_parts[2] = _fig_clean(_fl_parts[2].strip())
+            _fl_parts[2] = _fig_clean(_fl_parts[2].strip(), money_tol=0.05, pct_tol=0.10)
             _cleaned_fls.append('|'.join(_fl_parts))
         else:
             _cleaned_fls.append(_fl)
