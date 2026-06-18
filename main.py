@@ -935,12 +935,6 @@ def management_summary_box(d, C_ACCENT):
         bullets = []
         for rec in recs[:3]:
             text = str(rec).strip()
-            # Truncate to first sentence
-            for sep in ['. ', '! ', '? ']:
-                idx = text.find(sep)
-                if 0 < idx < len(text) - 1:
-                    text = text[:idx + 1]
-                    break
             if text:
                 bullets.append(text)
         if not bullets:
@@ -2907,17 +2901,10 @@ def build_report(d):
             cogs_items.append(_it)
             _cogs_norms_bl.append(_nl)
 
-    # Pass 2: move forced-opex items out of revenue and cogs
-    _new_rev3, _new_cogs3 = [], []
+    # Pass 2: move forced-opex items out of cogs only — never move revenue items to opex
+    # (a subscription/SaaS item in revenue is what customers pay YOU, not an expense)
+    _new_cogs3 = []
     _forced_opex_items = []
-    for _it in revenue_items:
-        _ll = _label_lower(_it)
-        if any(kw in _ll for kw in _FORCED_OPEX_KW):
-            _forced_opex_items.append(_it)
-        else:
-            _new_rev3.append(_it)
-    revenue_items = _new_rev3
-
     for _it in cogs_items:
         _ll = _label_lower(_it)
         if any(kw in _ll for kw in _FORCED_OPEX_KW):
@@ -3061,6 +3048,12 @@ def build_report(d):
     for _it in revenue_items + cogs_items + opex_items:
         _it['total'] = sum(clean(v) or 0 for v in _it.get('values', []))
 
+    # Ghost row guard: remove all-zero opex items before canonical computation (Issue 2)
+    opex_items = [
+        it for it in opex_items
+        if (it.get('total') or 0) != 0 or any((clean(v) or 0) != 0 for v in it.get('values', []))
+    ]
+
     # ── Step 4: Canonical totals from item.total fields ───────────────────────
     canonical_revenue = sum(clean(it.get('total')) or 0 for it in revenue_items) or None
     canonical_cogs    = sum(clean(it.get('total')) or 0 for it in cogs_items)    or None
@@ -3115,6 +3108,26 @@ def build_report(d):
             elif (clean(_opex_it.get('total')) or 0) > _cogs_thr:
                 _opex_it['total'] = sum(clean(v) or 0 for v in _ov)
                 print(f"[opex sanity] '{_opex_it.get('label','?')}' total recalculated from values", flush=True)
+
+    # Ghost row guard: remove any items zeroed by sanity guard
+    opex_items = [
+        it for it in opex_items
+        if (it.get('total') or 0) != 0 or any((clean(v) or 0) != 0 for v in it.get('values', []))
+    ]
+
+    # Recompute canonical opex/net_profit/net_margin once after sanity guard (Issue 3)
+    _co = sum((clean(it.get('total')) or 0) for it in opex_items)
+    if _co != (canonical_opex or 0):
+        canonical.opex       = _co if _co > 0 else None
+        canonical.net_profit = (_cr - _cc - _co) if canonical_revenue is not None else None
+        canonical.net_margin = ((_cr - _cc - _co) / _cr * 100) if _cr > 0 else None
+        canonical_opex       = canonical.opex
+        canonical_net_profit = canonical.net_profit
+        canonical_net_margin = canonical.net_margin
+        if canonical.opex       is not None: d['total_opex'] = _co
+        if canonical.net_profit is not None: d['net_profit'] = canonical.net_profit
+        if canonical.net_margin is not None: d['net_margin'] = canonical.net_margin
+        print(f"[canonical] recomputed after sanity guard: opex={_co} np={canonical.net_profit} nm={canonical.net_margin}", flush=True)
 
     # ── Step 5: Per-period values unconditionally from items ──────────────────
     for i, k in enumerate(periods_keys):
@@ -3376,6 +3389,19 @@ def build_report(d):
     if d.get('outlook'):
         toc_sections.append('Outlook')
     toc_sections.append('Glossary')
+
+    # ── Final opex rescue: last chance before story is built ─────────────────
+    _pre_story_norms = set(_norm_label(str(it.get('label', ''))) for it in opex_items)
+    _raw_opex_rescue2 = get_list(d, 'opex_items')
+    for _orig_nl, _orig_it in original_opex_labels.items():
+        if not any(_labels_match(_orig_nl, _fn) for _fn in _pre_story_norms):
+            _fresh = next(
+                (_ri for _ri in _raw_opex_rescue2 if _norm_label(str(_ri.get('label', ''))) == _orig_nl),
+                _orig_it
+            )
+            opex_items.append(_fresh)
+            _pre_story_norms.add(_orig_nl)
+            print(f"[pre-story rescue] restored opex '{_fresh.get('label','?')}'", flush=True)
 
     story = []
 
