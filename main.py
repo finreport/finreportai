@@ -435,19 +435,22 @@ def tax_estimate_section(net_profit, C_ACCENT):
         np_val = clean(net_profit)
         if not np_val or np_val <= 0:
             return None
-        if np_val <= 50000:
+        # Annualise to determine the correct rate band (thresholds are annual)
+        np_annual = np_val * 4
+        if np_annual <= 50000:
             rate = 0.19; rate_note = '19% small profits rate'
-        elif np_val >= 250000:
+        elif np_annual >= 250000:
             rate = 0.25; rate_note = '25% main rate'
         else:
-            rate = 0.19 + ((np_val - 50000) / 200000) * 0.06
-            rate_note = f'{rate:.1%} (marginal relief applies)'
+            rate = 0.19 + ((np_annual - 50000) / 200000) * 0.06
+            rate_note = f'{rate:.1%} marginal relief'
+        # Apply the rate to the actual period profit (not the annualised figure)
         tax_est = np_val * rate
         after_tax = np_val - tax_est
         rows = [
             [Paragraph('Corporation Tax Estimate (UK)', s('txh', fontName=FONT_SANS_BOLD, fontSize=8, textColor=WHITE, leading=12)),
              Paragraph('', ST_TD), Paragraph('', ST_TD)],
-            [Paragraph('Net Profit', ST_TD_L),
+            [Paragraph('Net Profit (this period)', ST_TD_L),
              Paragraph(fmt(np_val), ST_TD), Paragraph('', ST_TD)],
             [Paragraph(f'Estimated Tax ({rate_note})', ST_TD_L),
              Paragraph(f'({fmt(tax_est)})', s('txr', fontSize=8, textColor=RED_TEXT, alignment=TA_RIGHT, leading=11)),
@@ -2956,6 +2959,25 @@ def build_report(d):
     canonical_gross_margin = ((_cr - _cc) / _cr * 100)       if _cr > 0 else None
     canonical_net_margin   = ((_cr - _cc - _co) / _cr * 100) if _cr > 0 else None
 
+    # ── Opex sanity guard: zero row-drift values exceeding canonical_cogs ────
+    # If any single opex item value or total exceeds the total cost of goods
+    # sold it is almost certainly a misread row index (e.g. advertising picked
+    # up the Total COGS figure). Zero it so it doesn't corrupt margins.
+    _cogs_thr = canonical_cogs or 0
+    if _cogs_thr > 0:
+        for _opex_it in opex_items:
+            _ov = _opex_it.get('values', [])
+            _bad = [(i, clean(v) or 0) for i, v in enumerate(_ov) if (clean(v) or 0) > _cogs_thr]
+            if _bad:
+                _new_vals = [(0 if (clean(v) or 0) > _cogs_thr else (clean(v) or 0)) for v in _ov]
+                _opex_it['values'] = _new_vals
+                _opex_it['total']  = sum(_new_vals)
+                print(f"[opex sanity] '{_opex_it.get('label','?')}' row-drift zeroed at indices "
+                      f"{[i for i,_ in _bad]}", flush=True)
+            elif (clean(_opex_it.get('total')) or 0) > _cogs_thr:
+                _opex_it['total'] = sum(clean(v) or 0 for v in _ov)
+                print(f"[opex sanity] '{_opex_it.get('label','?')}' total recalculated from values", flush=True)
+
     # ── Step 5: Per-period values unconditionally from items ──────────────────
     for i, k in enumerate(periods_keys):
         _pv_rev  = sum(clean(it.get('values', [])[i]) or 0 for it in revenue_items if i < len(it.get('values', [])))
@@ -3092,7 +3114,31 @@ def build_report(d):
         def _replace_in(text):
             if not text or str(text).upper() in ('NA', 'N/A', 'NONE', ''):
                 return text
-            text = _pat_money.sub(_money_sub, str(text))
+            _s = str(text)
+            # Revenue-item context keywords: don't replace a figure that appears
+            # within 10 words of these terms (prevents net_profit overwriting
+            # revenue line item figures when the values happen to be close)
+            _REV_CTX = ('workshop', 'cafe', 'rental', 'rentals', 'sales', 'revenue',
+                        'bicycle', 'bike', 'ebike', 'coffee', 'retail', 'income')
+
+            def _ms_ctx(m):
+                amt = _parse_money(m.group(1), m.group(2))
+                if amt is None:
+                    return m.group(0)
+                # Build ±10-word window around the match position
+                ctx = (' '.join(_s[:m.start()].split()[-10:]) + ' ' +
+                       ' '.join(_s[m.end():].split()[:10])).lower()
+                if any(kw in ctx for kw in _REV_CTX):
+                    return m.group(0)  # revenue context — skip replacement
+                for tgt, fmtfn in _money_targets:
+                    if abs(amt - tgt) / tgt <= 0.15:
+                        if m.group(2):
+                            k_val = tgt / 1000
+                            return f'£{int(k_val)}k' if k_val == int(k_val) else f'£{k_val:.1f}k'
+                        return fmtfn(tgt)
+                return m.group(0)
+
+            text = _pat_money.sub(_ms_ctx, _s)
             text = _pat_pct.sub(_pct_sub, text)
             return text
 
@@ -3642,9 +3688,9 @@ def build_report(d):
         # ── Salary optimisation note (item 9) ────────────────────────────────
         try:
             _sal_np = clean(d.get('net_profit'))
-            if _sal_np is not None and _sal_np > 50000:
+            if _sal_np is not None and (_sal_np * 4) > 50000:
                 _sal_txt = (
-                    '<b>Owner-Managed Business Note:</b> With net profit exceeding £50,000, there may be '
+                    '<b>Owner-Managed Business Note:</b> With annualised net profit exceeding £50,000, there may be '
                     'opportunities to optimise your salary and dividend split to reduce overall tax liability. '
                     'Discuss with your accountant.'
                 )
