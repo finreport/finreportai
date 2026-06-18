@@ -2608,6 +2608,16 @@ def generate_canonical_narrative(d, canonical_revenue, canonical_net_profit, can
 def build_report(d):
     buf=io.BytesIO()
 
+    # ── Opex rescue snapshot: taken before ANY processing ─────────────────────
+    # Re-parse the raw opex JSON so we have a clean reference independent of
+    # everything that follows. original_opex_labels maps norm_label → item dict.
+    _opex_rescue_raw = get_list(d, 'opex_items')
+    original_opex_labels = {}
+    for _rit in _opex_rescue_raw:
+        _rnl = re.sub(r'[^a-z0-9]', '', str(_rit.get('label', '')).lower())
+        if _rnl:
+            original_opex_labels[_rnl] = _rit
+
     wl_name     = str(d.get('white_label_firm','')).strip()
     wl_logo     = str(d.get('wl_logo','')).strip()
     wl_primary  = str(d.get('white_label_primary_colour','')).strip()
@@ -2919,6 +2929,21 @@ def build_report(d):
             _final_opex_norms.append(_mn)
             print(f"[misc guard] restored '{_mi.get('label','?')}' to opex_items", flush=True)
 
+    # ── Opex rescue: restore any original opex item lost during pipeline ──────
+    # Uses original_opex_labels snapshot taken at the very start of build_report.
+    _final_opex_nl_set = set(_norm_label(str(it.get('label', ''))) for it in opex_items)
+    for _orig_nl, _orig_it in original_opex_labels.items():
+        if not any(_labels_match(_orig_nl, _fon) for _fon in _final_opex_nl_set):
+            # Re-fetch from raw JSON for a clean copy
+            _fresh = next(
+                (_ri for _ri in _opex_rescue_raw
+                 if _norm_label(str(_ri.get('label', ''))) == _orig_nl),
+                _orig_it
+            )
+            opex_items.append(_fresh)
+            _final_opex_nl_set.add(_orig_nl)
+            print(f"[opex rescue] restored '{_fresh.get('label','?')}' from original data", flush=True)
+
     # ── Step 4: Canonical totals from item.total fields ───────────────────────
     canonical_revenue = sum(clean(it.get('total')) or 0 for it in revenue_items) or None
     canonical_cogs    = sum(clean(it.get('total')) or 0 for it in cogs_items)    or None
@@ -3086,7 +3111,8 @@ def build_report(d):
         periods_full
     )
 
-    # ── Sanitise key_takeaways: 25% tolerance, includes per-period margins ──────
+    # ── Sanitise key_takeaways ────────────────────────────────────────────────
+    # Three-pass clean + COGS-as-revenue filter.
     try:
         _kt_raw = d.get('key_takeaways')
         if _kt_raw:
@@ -3094,7 +3120,51 @@ def build_report(d):
                 try:    _kt_raw = json.loads(_kt_raw)
                 except Exception: _kt_raw = [r.strip() for r in _kt_raw.split('|') if r.strip()]
             if isinstance(_kt_raw, list):
-                d['key_takeaways'] = [_fig_clean(str(item), money_tol=0.05, pct_tol=0.10) for item in _kt_raw]
+                # Build per-period net profit targets for 30% tolerance replacement
+                _kt_np_tgts = {}
+                for _k in periods_keys:
+                    _pv = clean(d.get('net_profit_' + _k))
+                    if _pv is not None:
+                        _kt_np_tgts[_k] = _pv
+
+                _kt_mpat = re.compile(r'£([\d,]+(?:\.\d+)?)(k)?', re.IGNORECASE)
+
+                def _kt_np_replace(text):
+                    """Replace any £ figure within 30% of a canonical per-period net profit."""
+                    def _sub(m):
+                        try:
+                            amt = float(m.group(1).replace(',', '')) * (1000 if m.group(2) else 1)
+                        except Exception:
+                            return m.group(0)
+                        for _tgt in _kt_np_tgts.values():
+                            if _tgt != 0 and abs(amt - _tgt) / abs(_tgt) <= 0.30:
+                                if (amt >= 0) == (_tgt >= 0):
+                                    if m.group(2):
+                                        _kv = _tgt / 1000
+                                        return f'£{_kv:.0f}k' if _kv == int(_kv) else f'£{_kv:.1f}k'
+                                    return fmt(_tgt)
+                        return m.group(0)
+                    return _kt_mpat.sub(_sub, str(text))
+
+                _COGS_WORDS = {'parts', 'inventory', 'beans', 'stock', 'materials', 'components'}
+                _REV_WORDS  = {'revenue', 'sales'}
+
+                def _is_cogs_as_revenue(text):
+                    tl = text.lower()
+                    return (any(w in tl for w in _COGS_WORDS) and
+                            any(w in tl for w in _REV_WORDS))
+
+                _cleaned_kt = []
+                for _item in _kt_raw:
+                    _s = str(_item)
+                    if _is_cogs_as_revenue(_s):
+                        print(f"[kt filter] removed COGS-as-revenue takeaway: {_s[:80]}", flush=True)
+                        continue
+                    _s = _fig_clean(_s, money_tol=0.05, pct_tol=0.10)   # pass 1: tight
+                    _s = _sync_clean(_s)                                   # pass 2: 15% via sync
+                    _s = _kt_np_replace(_s)                                # pass 3: 30% net profit
+                    _cleaned_kt.append(_s)
+                d['key_takeaways'] = _cleaned_kt
     except Exception:
         pass
 
