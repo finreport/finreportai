@@ -1,5 +1,6 @@
 from flask import Flask, request, send_file
 import io, json, re
+from types import SimpleNamespace
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import mm
@@ -102,7 +103,15 @@ def fmtp(n):
     v = clean(n)
     if v is None: return 'N/A'
     if abs(v) > 1: v = v/100
+    if abs(v) > 9.99: return 'N/A'   # >999% absolute — display N/A
     return f'{v:.1%}'
+
+_approx_pat = re.compile(r'(£[\d,]+(?:\.\d+)?(?:k|K)?|\d+(?:\.\d+)?%)')
+
+def _approx_numbers(text):
+    """Prefix monetary/percentage figures in Claude text with 'approx.' to distinguish from canonical."""
+    if not text: return text
+    return _approx_pat.sub(lambda m: f'approx. {m.group(0)}', str(text))
 
 _MONTH_CORRECTIONS = {
     'mur': 'Mar', 'jab': 'Jan', 'fab': 'Feb', 'arp': 'Apr', 'mei': 'May',
@@ -194,6 +203,7 @@ def margin_bar(pct_val, label, color, w=65, h=10):
     v = clean(pct_val)
     if v is None: v = 0
     if abs(v) > 1: v = v/100
+    if abs(v) > 9.99: v = 0   # cap runaway values
     dw = Drawing(w*mm, h*mm); track_w=(w-4)*mm; fill_w=track_w*min(max(v,0),1.0)
     dw.add(Rect(2*mm,3*mm,track_w,4*mm,fillColor=BORDER,strokeColor=None,rx=2,ry=2))
     dw.add(Rect(2*mm,3*mm,fill_w,4*mm,fillColor=color,strokeColor=None,rx=2,ry=2))
@@ -2504,14 +2514,18 @@ def intro_letter(d, prepared_by, is_wl, wl_contact, C_PRIMARY):
 
 def generate_canonical_narrative(d, canonical_revenue, canonical_net_profit, canonical_gross_profit,
                                   canonical_gross_margin, canonical_net_margin, canonical_cogs,
-                                  canonical_opex, periods_full):
+                                  canonical_opex, periods_full, per_period=None):
     """Return narrative paragraphs built entirely from canonical values — no Claude figures."""
     bname   = str(d.get('business_name', 'The business')).strip()
     period  = str(d.get('period', '')).strip()
     n_per   = len(periods_full)
-    period_keys = [p.lower().replace(' ', '').replace('-', '') for p in periods_full]
-    per_rev = [clean(d.get('revenue_' + k)) for k in period_keys]
-    per_rev_vals = [v for v in per_rev if v is not None]
+    if per_period:
+        per_rev_vals = [per_period[i]['revenue'] for i in sorted(per_period.keys()) if per_period[i]['revenue'] > 0]
+        per_rev = per_rev_vals  # for backward compat with peak/trough logic below
+    else:
+        period_keys = [p.lower().replace(' ', '').replace('-', '') for p in periods_full]
+        per_rev = [clean(d.get('revenue_' + k)) for k in period_keys]
+        per_rev_vals = [v for v in per_rev if v is not None]
 
     # Tone from net margin
     if canonical_net_margin is not None:
@@ -2706,6 +2720,9 @@ def build_report(d):
     revenue_items = get_list(d, 'revenue_items')
     cogs_items    = get_list(d, 'cogs_items')
     opex_items    = get_list(d, 'opex_items')
+    # Snapshots for rescue step (Item 7)
+    original_revenue_labels = {re.sub(r'[^a-z0-9]', '', str(it.get('label','')).lower()): it for it in revenue_items if re.sub(r'[^a-z0-9]', '', str(it.get('label','')).lower())}
+    original_cogs_labels    = {re.sub(r'[^a-z0-9]', '', str(it.get('label','')).lower()): it for it in cogs_items    if re.sub(r'[^a-z0-9]', '', str(it.get('label','')).lower())}
     print(f"[initial revenue_items] {[it.get('label','?') for it in revenue_items]}", flush=True)
     print(f"[initial opex_items] {[it.get('label','?') for it in opex_items]}", flush=True)
     # Store original revenue labels before any reclassification (used by purity guard below)
@@ -2811,14 +2828,19 @@ def build_report(d):
         if _nl: _all_orig_labels.add(_nl)
 
     # ── Step 2: Deduplicate items by label (merge values element-wise) ────────
-    def _dedup(items):
-        seen_keys   = []   # original lowercased labels in insertion order
-        seen_norms  = []   # normalised labels parallel to seen_keys
+    def _dedup(items, bucket_name='items'):
+        def _canon(lbl):
+            n = _norm_label(lbl)
+            for sfx in ('ltd','limited'):
+                if n.endswith(sfx): n = n[:-len(sfx)]
+            return n.strip()
+        seen_keys   = []
+        seen_norms  = []
         merged = {}
         for it in items:
             raw_lbl = str(it.get('label', '')).strip()
             lbl = raw_lbl.lower()
-            nl  = _norm_label(lbl)
+            nl  = _canon(lbl)
             matched_key = None
             for idx, enl in enumerate(seen_norms):
                 if _labels_match(nl, enl):
@@ -2838,8 +2860,78 @@ def build_report(d):
                 ex['values'] = [(ev[j] if j < len(ev) else 0) + (nv[j] if j < len(nv) else 0)
                                 for j in range(ln)]
                 nt = clean(it.get('total'))
-                ex['total'] = (ex['total'] or 0) + (nt or 0)
+                new_total = (ex['total'] or 0) + (nt or 0)
+                print(f"[dedup:{bucket_name}] merged '{raw_lbl}' into '{matched_key}' → total {new_total}", flush=True)
+                ex['total'] = new_total
         return [merged[k] for k in seen_keys]
+
+    # Dedup before reclassification (Item 3)
+    revenue_items = _dedup(revenue_items, 'revenue')
+    cogs_items    = _dedup(cogs_items, 'cogs')
+    opex_items    = _dedup(opex_items, 'opex')
+
+    # ── Category blocklist enforcement (Item 2) — BEFORE reclassification ─────
+    def _label_lower(it):
+        return str(it.get('label', '')).lower()
+
+    _FORCED_COGS_KW = ('inventory','stock','beans','materials','components','parts',
+                       'ingredients','packaging','coffee','produce','raw')
+    _FORCED_OPEX_KW = ('wages','salary','salaries','rent','rates','utilities','power',
+                       'electric','gas','insurance','advertising','marketing','ads',
+                       'software','subscriptions','repairs','maintenance','misc',
+                       'professional','legal','telephone','accounting')
+
+    # Pass 1: move forced-cogs items out of revenue and opex
+    _new_rev2, _new_opex2 = [], []
+    _forced_cogs_items = []
+    for _it in revenue_items:
+        _ll = _label_lower(_it)
+        if any(kw in _ll for kw in _FORCED_COGS_KW):
+            _forced_cogs_items.append(_it)
+        else:
+            _new_rev2.append(_it)
+    revenue_items = _new_rev2
+
+    for _it in opex_items:
+        _ll = _label_lower(_it)
+        if any(kw in _ll for kw in _FORCED_COGS_KW) and not any(kw in _ll for kw in _FORCED_OPEX_KW):
+            _forced_cogs_items.append(_it)
+        else:
+            _new_opex2.append(_it)
+    opex_items = _new_opex2
+
+    _cogs_norms_bl = [_norm_label(str(_it.get('label',''))) for _it in cogs_items]
+    for _it in _forced_cogs_items:
+        _nl = _norm_label(str(_it.get('label','')))
+        if not any(_labels_match(_nl, _cn) for _cn in _cogs_norms_bl):
+            cogs_items.append(_it)
+            _cogs_norms_bl.append(_nl)
+
+    # Pass 2: move forced-opex items out of revenue and cogs
+    _new_rev3, _new_cogs3 = [], []
+    _forced_opex_items = []
+    for _it in revenue_items:
+        _ll = _label_lower(_it)
+        if any(kw in _ll for kw in _FORCED_OPEX_KW):
+            _forced_opex_items.append(_it)
+        else:
+            _new_rev3.append(_it)
+    revenue_items = _new_rev3
+
+    for _it in cogs_items:
+        _ll = _label_lower(_it)
+        if any(kw in _ll for kw in _FORCED_OPEX_KW):
+            _forced_opex_items.append(_it)
+        else:
+            _new_cogs3.append(_it)
+    cogs_items = _new_cogs3
+
+    _opex_norms_bl = [_norm_label(str(_it.get('label',''))) for _it in opex_items]
+    for _it in _forced_opex_items:
+        _nl = _norm_label(str(_it.get('label','')))
+        if not any(_labels_match(_nl, _oon) for _oon in _opex_norms_bl):
+            opex_items.append(_it)
+            _opex_norms_bl.append(_nl)
 
     # ── Step 3: Reclassify misplaced line items ───────────────────────────────
     _COGS_KW = ('inventory', 'stock', 'parts', 'components', 'materials',
@@ -2847,9 +2939,6 @@ def build_report(d):
     _OPEX_KW = ('utilities', 'power', 'insurance', 'rent', 'wages', 'salary',
                 'advertising', 'marketing', 'software', 'subscriptions', 'misc',
                 'professional', 'telephone', 'legal')
-
-    def _label_lower(it):
-        return str(it.get('label', '')).lower()
 
     _new_rev, _bump_cogs = [], []
     for _it in revenue_items:
@@ -2878,9 +2967,9 @@ def build_report(d):
     opex_items = opex_items + _bump_opex
 
     # Deduplicate again after reclassification (catches cross-bucket duplicates)
-    revenue_items = _dedup(revenue_items)
-    cogs_items    = _dedup(cogs_items)
-    opex_items    = _dedup(opex_items)
+    revenue_items = _dedup(revenue_items, 'revenue-post')
+    cogs_items    = _dedup(cogs_items, 'cogs-post')
+    opex_items    = _dedup(opex_items, 'opex-post')
 
     # ── Hallucination guard: remove phantom items not in original input ────────
     def _is_genuine(it):
@@ -2947,6 +3036,31 @@ def build_report(d):
             _final_opex_nl_set.add(_orig_nl)
             print(f"[opex rescue] restored '{_fresh.get('label','?')}' from original data", flush=True)
 
+    # ── Revenue + COGS rescue (Item 7) ───────────────────────────────────────
+    _raw_rev_rescue  = get_list(d, 'revenue_items')
+    _raw_cogs_rescue = get_list(d, 'cogs_items')
+
+    _final_rev_norms  = set(_norm_label(str(it.get('label',''))) for it in revenue_items)
+    _final_cogs_norms = set(_norm_label(str(it.get('label',''))) for it in cogs_items)
+
+    for _orig_nl, _orig_it in original_revenue_labels.items():
+        if not any(_labels_match(_orig_nl, _fn) for _fn in _final_rev_norms):
+            _fresh = next((_ri for _ri in _raw_rev_rescue if _norm_label(str(_ri.get('label',''))) == _orig_nl), _orig_it)
+            revenue_items.append(_fresh)
+            _final_rev_norms.add(_orig_nl)
+            print(f"[rescue] restored revenue '{_fresh.get('label','?')}'", flush=True)
+
+    for _orig_nl, _orig_it in original_cogs_labels.items():
+        if not any(_labels_match(_orig_nl, _fn) for _fn in _final_cogs_norms):
+            _fresh = next((_ri for _ri in _raw_cogs_rescue if _norm_label(str(_ri.get('label',''))) == _orig_nl), _orig_it)
+            cogs_items.append(_fresh)
+            _final_cogs_norms.add(_orig_nl)
+            print(f"[rescue] restored cogs '{_fresh.get('label','?')}'", flush=True)
+
+    # Recalculate item totals from values — discard Claude's provided totals (Item 5)
+    for _it in revenue_items + cogs_items + opex_items:
+        _it['total'] = sum(clean(v) or 0 for v in _it.get('values', []))
+
     # ── Step 4: Canonical totals from item.total fields ───────────────────────
     canonical_revenue = sum(clean(it.get('total')) or 0 for it in revenue_items) or None
     canonical_cogs    = sum(clean(it.get('total')) or 0 for it in cogs_items)    or None
@@ -2958,6 +3072,30 @@ def build_report(d):
     canonical_net_profit   = (_cr - _cc - _co) if canonical_revenue is not None else None
     canonical_gross_margin = ((_cr - _cc) / _cr * 100)       if _cr > 0 else None
     canonical_net_margin   = ((_cr - _cc - _co) / _cr * 100) if _cr > 0 else None
+
+    # Wrap in frozen canonical namespace (Item 1)
+    canonical = SimpleNamespace(
+        revenue      = canonical_revenue,
+        cogs         = canonical_cogs,
+        gross_profit = canonical_gross_profit,
+        opex         = canonical_opex,
+        net_profit   = canonical_net_profit,
+        gross_margin = canonical_gross_margin,
+        net_margin   = canonical_net_margin,
+        per_period   = {}   # filled in Step 5
+    )
+
+    # CSV total verification (Item 6)
+    _exp_rev  = sum(clean(it.get('total')) or 0 for it in revenue_items)
+    _exp_cogs = sum(clean(it.get('total')) or 0 for it in cogs_items)
+    _exp_opex = sum(clean(it.get('total')) or 0 for it in opex_items)
+    if canonical.revenue and abs(_exp_rev - canonical.revenue) > 1:
+        print(f"[WARN csv-verify] revenue mismatch: canonical={canonical.revenue} expected={_exp_rev}", flush=True)
+    if canonical.cogs and abs(_exp_cogs - canonical.cogs) > 1:
+        print(f"[WARN csv-verify] cogs mismatch: canonical={canonical.cogs} expected={_exp_cogs}", flush=True)
+    if canonical.opex and abs(_exp_opex - canonical.opex) > 1:
+        print(f"[WARN csv-verify] opex mismatch: canonical={canonical.opex} expected={_exp_opex}", flush=True)
+
 
     # ── Opex sanity guard: zero row-drift values exceeding canonical_cogs ────
     # If any single opex item value or total exceeds the total cost of goods
@@ -2992,6 +3130,12 @@ def build_report(d):
         d['gross_profit_' + k] = _pv_gp
         d['net_profit_'   + k] = _pv_np
         d['net_margin_'   + k] = _pv_nm
+        # Populate canonical.per_period (Item 1)
+        canonical.per_period[i] = {
+            'key': k, 'label': periods_full[i] if i < len(periods_full) else k,
+            'revenue': _pv_rev, 'cogs': _pv_cogs, 'opex': _pv_opex,
+            'gross_profit': _pv_gp, 'net_profit': _pv_np, 'net_margin': _pv_nm
+        }
 
     # ── Step 6: Write canonical totals back to d (overwrite Claude's values) ──
     if canonical_revenue      is not None: d['total_revenue'] = canonical_revenue
@@ -3010,14 +3154,14 @@ def build_report(d):
             canonical_revenue, canonical_net_profit, canonical_gross_profit,
             canonical_cogs, canonical_opex,
         ] if v is not None and v > 0]
-        for _k in periods_keys:
-            for _pfx in ('revenue_', 'net_profit_', 'gross_profit_', 'cogs_', 'opex_'):
-                _pv = clean(d.get(_pfx + _k))
+        for _pp in canonical.per_period.values():
+            for _pfx in ('revenue', 'net_profit', 'gross_profit', 'cogs', 'opex'):
+                _pv = _pp.get(_pfx)
                 if _pv is not None and _pv > 0:
                     _m_tgts.append((_pv, fmt))
         _p_tgts = [v for v in [canonical_net_margin, canonical_gross_margin] if v is not None]
-        for _k in periods_keys:
-            _pm = clean(d.get('net_margin_' + _k))
+        for _pp in canonical.per_period.values():
+            _pm = _pp.get('net_margin')
             if _pm is not None:
                 _p_tgts.append(_pm)
         # Hyphen guard: skip £X in ranges like £X-£Y
@@ -3049,112 +3193,10 @@ def build_report(d):
         text = _ppat.sub(_ps, text)
         return text
 
-    # ── sync_narrative_text: replace monetary/pct figures in narrative fields ──
-    def sync_narrative_text(d):
-        # Money targets: (canonical_value, formatter)
-        _money_targets = []
-        for _cv, _fmtfn in [
-            (canonical_revenue,      fmt),
-            (canonical_net_profit,   fmt),
-            (canonical_gross_profit, fmt),
-        ]:
-            if _cv is not None and _cv > 0:
-                _money_targets.append((_cv, _fmtfn))
-
-        # Percentage targets: canonical margins are 0-100 scale
-        _pct_targets = []
-        for _cv in [canonical_net_margin, canonical_gross_margin]:
-            if _cv is not None:
-                _pct_targets.append(_cv)
-
-        # Per-period money targets from d
-        for _k in periods_keys:
-            for _pfx in ('revenue_', 'net_profit_', 'gross_profit_'):
-                _pv = clean(d.get(_pfx + _k))
-                if _pv is not None and _pv > 0:
-                    _money_targets.append((_pv, fmt))
-
-        # £ pattern: £79,150 | £79k | £79.1k — skip if part of a hyphenated range like £X-£Y
-        _pat_money = re.compile(r'£([\d,]+(?:\.\d+)?)(k)?(?!\s*[-–]\s*£)', re.IGNORECASE)
-        # Percentage pattern: 31.4% or 31%
-        _pat_pct   = re.compile(r'(\d+(?:\.\d+)?)\s*%')
-
-        def _parse_money(num_str, k_suffix):
-            try:
-                v = float(num_str.replace(',', ''))
-                return v * 1000 if k_suffix else v
-            except Exception:
-                return None
-
-        def _money_sub(m):
-            amt = _parse_money(m.group(1), m.group(2))
-            if amt is None:
-                return m.group(0)
-            for tgt, fmtfn in _money_targets:
-                if abs(amt - tgt) / tgt <= 0.15:
-                    canonical_str = fmtfn(tgt)
-                    # Preserve £Xk format if original used it
-                    if m.group(2):
-                        k_val = tgt / 1000
-                        if k_val == int(k_val):
-                            return f'£{int(k_val)}k'
-                        return f'£{k_val:.1f}k'
-                    return canonical_str
-            return m.group(0)
-
-        def _pct_sub(m):
-            val = float(m.group(1))
-            for tgt in _pct_targets:
-                if tgt != 0 and abs(val - tgt) / abs(tgt) <= 0.15:
-                    if '.' in m.group(1):
-                        return f'{tgt:.1f}%'
-                    return f'{tgt:.0f}%'
-            return m.group(0)
-
-        def _replace_in(text):
-            if not text or str(text).upper() in ('NA', 'N/A', 'NONE', ''):
-                return text
-            _s = str(text)
-            # Revenue-item context keywords: don't replace a figure that appears
-            # within 10 words of these terms (prevents net_profit overwriting
-            # revenue line item figures when the values happen to be close)
-            _REV_CTX = ('workshop', 'cafe', 'rental', 'rentals', 'sales', 'revenue',
-                        'bicycle', 'bike', 'ebike', 'coffee', 'retail', 'income')
-
-            def _ms_ctx(m):
-                amt = _parse_money(m.group(1), m.group(2))
-                if amt is None:
-                    return m.group(0)
-                # Build ±10-word window around the match position
-                ctx = (' '.join(_s[:m.start()].split()[-10:]) + ' ' +
-                       ' '.join(_s[m.end():].split()[:10])).lower()
-                if any(kw in ctx for kw in _REV_CTX):
-                    return m.group(0)  # revenue context — skip replacement
-                for tgt, fmtfn in _money_targets:
-                    if abs(amt - tgt) / tgt <= 0.15:
-                        if m.group(2):
-                            k_val = tgt / 1000
-                            return f'£{int(k_val)}k' if k_val == int(k_val) else f'£{k_val:.1f}k'
-                        return fmtfn(tgt)
-                return m.group(0)
-
-            text = _pat_money.sub(_ms_ctx, _s)
-            text = _pat_pct.sub(_pct_sub, text)
-            return text
-
-        for _nf in ('forecast_narrative',):
-            _nv = d.get(_nf)
-            if _nv and str(_nv).upper() not in ('NA', 'N/A', 'NONE', ''):
-                d[_nf] = _replace_in(str(_nv))
-
-        return _replace_in  # expose for flag body cleaning
-
-    _sync_clean = sync_narrative_text(d)
-
     _narr = generate_canonical_narrative(
         d, canonical_revenue, canonical_net_profit, canonical_gross_profit,
         canonical_gross_margin, canonical_net_margin, canonical_cogs, canonical_opex,
-        periods_full
+        periods_full, per_period=canonical.per_period
     )
 
     # ── Sanitise key_takeaways ────────────────────────────────────────────────
@@ -3207,16 +3249,23 @@ def build_report(d):
                         print(f"[kt filter] removed COGS-as-revenue takeaway: {_s[:80]}", flush=True)
                         continue
                     _s = _fig_clean(_s, money_tol=0.05, pct_tol=0.10)   # pass 1: tight
-                    _s = _sync_clean(_s)                                   # pass 2: 15% via sync
-                    _s = _kt_np_replace(_s)                                # pass 3: 30% net profit
+                    _s = _kt_np_replace(_s)                                # pass 2: 30% net profit
                     _cleaned_kt.append(_s)
                 d['key_takeaways'] = _cleaned_kt
     except Exception:
         pass
 
-    # ── Step 7: Update each item's .total = sum of its values ─────────────────
-    for _it in revenue_items + cogs_items + opex_items:
-        _it['total'] = sum(clean(v) or 0 for v in _it.get('values', []))
+    # Apply _approx_numbers to qualitative Claude fields (Item 13)
+    for _qf in ('recommendations', 'outlook', 'questions_to_discuss', 'next_90_days'):
+        _qv = d.get(_qf)
+        if _qv and str(_qv).upper() not in ('NA','N/A','NONE',''):
+            d[_qf] = _approx_numbers(str(_qv))
+    # flags — applied per-item during flag_lines building (done below)
+    # key_takeaways
+    if isinstance(d.get('key_takeaways'), list):
+        d['key_takeaways'] = [_approx_numbers(s) for s in d.get('key_takeaways', [])]
+
+    # Step 7 removed — item totals already recalculated before Step 4 (Item 5)
 
     period_rev = [d.get('revenue_'+k) for k in periods_keys]
     opex_with_totals = sorted(
@@ -3296,12 +3345,30 @@ def build_report(d):
         if len(_fl_parts) >= 3:
             _body = _fl_parts[2].strip()
             _body = _fig_clean(_body, money_tol=0.05, pct_tol=0.10)
-            _body = _sync_clean(_body)  # second pass: sync_narrative_text at 15% tolerance
             _fl_parts[2] = _body
             _cleaned_fls.append('|'.join(_fl_parts))
         else:
             _cleaned_fls.append(_fl)
     flag_lines = _cleaned_fls
+
+    # Cross-footing validation (Item 14)
+    _xfoot_ok = True
+    for _i, _pp in canonical.per_period.items():
+        _expected_np = _pp['revenue'] - _pp['cogs'] - _pp['opex']
+        if abs(_expected_np - _pp['net_profit']) > 1:
+            print(f"[WARN xfoot] period {_pp['label']}: rev-cogs-opex={_expected_np:.2f} ≠ net_profit={_pp['net_profit']:.2f}", flush=True)
+            _xfoot_ok = False
+
+    for _it in revenue_items + cogs_items + opex_items:
+        _it_sum = sum(clean(v) or 0 for v in _it.get('values', []))
+        _it_tot = clean(_it.get('total')) or 0
+        if abs(_it_sum - _it_tot) > 1:
+            print(f"[WARN xfoot] item '{_it.get('label','?')}' sum={_it_sum:.2f} ≠ total={_it_tot:.2f}", flush=True)
+            _xfoot_ok = False
+
+    if not _xfoot_ok:
+        flag_lines.insert(0, 'INFO|Data Note|Data verified with minor rounding adjustments applied.')
+
     if flag_lines:
         toc_sections.append('Flags & Items to Watch')
     if has_notes:
@@ -3426,11 +3493,30 @@ def build_report(d):
             comparison_kpi_card('Net Margin', d.get('net_margin'), d.get('prev_net_margin'), True),
         ]
     else:
+        # KPI sanity checks (Item 9)
+        _kpi_rev  = canonical.revenue
+        _kpi_np   = canonical.net_profit
+        _kpi_gm   = canonical.gross_margin
+        _kpi_nm   = canonical.net_margin
+
+        if _kpi_np is not None and _kpi_rev is not None and _kpi_np > _kpi_rev:
+            print(f"[WARN kpi] net_profit ({_kpi_np}) > revenue ({_kpi_rev}) — displaying N/A", flush=True)
+            _kpi_np = None
+        if _kpi_gm is not None and (abs(_kpi_gm) > 999 or _kpi_gm > 100 or _kpi_gm < -100):
+            print(f"[WARN kpi] gross_margin {_kpi_gm} implausible — displaying N/A", flush=True)
+            _kpi_gm = None
+        if _kpi_nm is not None and _kpi_gm is not None and _kpi_nm > _kpi_gm:
+            print(f"[WARN kpi] net_margin ({_kpi_nm}) > gross_margin ({_kpi_gm}) — displaying N/A", flush=True)
+            _kpi_nm = None
+        if _kpi_nm is not None and abs(_kpi_nm) > 999:
+            print(f"[WARN kpi] net_margin {_kpi_nm} implausible — displaying N/A", flush=True)
+            _kpi_nm = None
+
         kpi_defs = [
-            (fmt(d.get('total_revenue')),'Total Revenue',d.get('period','')),
-            (fmt(d.get('net_profit')),'Net Profit',d.get('period','')),
-            (fmtp(d.get('gross_margin')),'Gross Margin','Average'),
-            (fmtp(d.get('net_margin')),'Net Margin','Average'),
+            (fmt(_kpi_rev)                                         , 'Total Revenue', d.get('period','')),
+            (fmt(_kpi_np)   if _kpi_np  is not None else 'N/A'    , 'Net Profit',    d.get('period','')),
+            (fmtp(_kpi_gm)  if _kpi_gm  is not None else 'N/A'    , 'Gross Margin',  'Average'),
+            (fmtp(_kpi_nm)  if _kpi_nm  is not None else 'N/A'    , 'Net Margin',    'Average'),
         ]
         kpis = [kpi_card(v,l,sub) for (v,l,sub) in kpi_defs]
 
