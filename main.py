@@ -2697,6 +2697,10 @@ def build_report(d):
     print(f"[initial opex_items] {[it.get('label','?') for it in opex_items]}", flush=True)
     # Store original revenue labels before any reclassification (used by purity guard below)
     _orig_rev_labels = set(_norm_label(str(it.get('label', ''))) for it in revenue_items)
+    # Hard misc guard: snapshot any opex items whose label contains 'misc' before the pipeline
+    # touches them — used to restore if they get dropped by dedup/hallucination guard
+    _misc_snapshot = [it for it in opex_items
+                      if 'misc' in str(it.get('label', '')).lower()]
     prev_revenue_items = get_list(d, 'prev_revenue_items')
     prev_cogs_items    = get_list(d, 'prev_cogs_items')
     prev_opex_items    = get_list(d, 'prev_opex_items')
@@ -2906,6 +2910,15 @@ def build_report(d):
     print(f"[revenue purity] kept={[it.get('label','?') for it in revenue_items]} forced_to_cogs={[it.get('label','?') for it in _force_to_cogs]}", flush=True)
     print(f"[final opex_items] {[it.get('label','?') for it in opex_items]}", flush=True)
 
+    # ── Misc hard guard: restore any misc item lost during pipeline ───────────
+    _final_opex_norms = [_norm_label(str(it.get('label', ''))) for it in opex_items]
+    for _mi in _misc_snapshot:
+        _mn = _norm_label(str(_mi.get('label', '')))
+        if not any(_labels_match(_mn, _fon) for _fon in _final_opex_norms):
+            opex_items.append(_mi)
+            _final_opex_norms.append(_mn)
+            print(f"[misc guard] restored '{_mi.get('label','?')}' to opex_items", flush=True)
+
     # ── Step 4: Canonical totals from item.total fields ───────────────────────
     canonical_revenue = sum(clean(it.get('total')) or 0 for it in revenue_items) or None
     canonical_cogs    = sum(clean(it.get('total')) or 0 for it in cogs_items)    or None
@@ -3063,7 +3076,9 @@ def build_report(d):
             if _nv and str(_nv).upper() not in ('NA', 'N/A', 'NONE', ''):
                 d[_nf] = _replace_in(str(_nv))
 
-    sync_narrative_text(d)
+        return _replace_in  # expose for flag body cleaning
+
+    _sync_clean = sync_narrative_text(d)
 
     _narr = generate_canonical_narrative(
         d, canonical_revenue, canonical_net_profit, canonical_gross_profit,
@@ -3163,7 +3178,10 @@ def build_report(d):
     for _fl in flag_lines:
         _fl_parts = _fl.split('|')
         if len(_fl_parts) >= 3:
-            _fl_parts[2] = _fig_clean(_fl_parts[2].strip(), money_tol=0.05, pct_tol=0.10)
+            _body = _fl_parts[2].strip()
+            _body = _fig_clean(_body, money_tol=0.05, pct_tol=0.10)
+            _body = _sync_clean(_body)  # second pass: sync_narrative_text at 15% tolerance
+            _fl_parts[2] = _body
             _cleaned_fls.append('|'.join(_fl_parts))
         else:
             _cleaned_fls.append(_fl)
