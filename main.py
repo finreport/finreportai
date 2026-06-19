@@ -2641,14 +2641,14 @@ def _canonical_pipeline(d):
     failures   = []
     warnings   = []
 
-    # Canonical totals
-    _cr = sum(clean(it.get('total')) or 0 for it in revenue_items)
-    _cc = sum(clean(it.get('total')) or 0 for it in cogs_items)
-    _co = sum(clean(it.get('total')) or 0 for it in opex_items)
-    canonical_revenue     = _cr or None
-    canonical_cogs        = _cc or None
-    canonical_opex        = _co or None
-    canonical_net_profit  = (_cr - _cc - _co) if canonical_revenue is not None else None
+    # Canonical totals — explicit empty-list guard so an empty category returns 0, not None
+    canonical_revenue = sum(clean(it.get('total')) or 0 for it in revenue_items) if revenue_items else 0
+    canonical_cogs    = sum(clean(it.get('total')) or 0 for it in cogs_items)    if cogs_items    else 0
+    canonical_opex    = sum(clean(it.get('total')) or 0 for it in opex_items)    if opex_items    else 0
+    _cr = canonical_revenue
+    _cc = canonical_cogs
+    _co = canonical_opex
+    canonical_net_profit  = _cr - _cc - _co
     if _cr == 0:
         canonical_gross_margin = 0
         canonical_net_margin   = 0
@@ -3377,14 +3377,15 @@ def build_report(d):
 
     # ============ CRITICAL — DO NOT MODIFY WITHOUT FULL REGRESSION TEST AGAINST ALL 5 TEST CSVs ============
     # ── Step 4: Canonical totals from item.total fields ───────────────────────
-    canonical_revenue = sum(clean(it.get('total')) or 0 for it in revenue_items) or None
-    canonical_cogs    = sum(clean(it.get('total')) or 0 for it in cogs_items)    or None
-    canonical_opex    = sum(clean(it.get('total')) or 0 for it in opex_items)    or None
-    _cr = canonical_revenue or 0
-    _cc = canonical_cogs    or 0
-    _co = canonical_opex    or 0
-    canonical_gross_profit = (_cr - _cc)       if canonical_revenue is not None else None
-    canonical_net_profit   = (_cr - _cc - _co) if canonical_revenue is not None else None
+    # Explicit empty-list guard: empty category → 0, not None (matches /validate behaviour)
+    canonical_revenue = sum(clean(it.get('total')) or 0 for it in revenue_items) if revenue_items else 0
+    canonical_cogs    = sum(clean(it.get('total')) or 0 for it in cogs_items)    if cogs_items    else 0
+    canonical_opex    = sum(clean(it.get('total')) or 0 for it in opex_items)    if opex_items    else 0
+    _cr = canonical_revenue
+    _cc = canonical_cogs
+    _co = canonical_opex
+    canonical_gross_profit = _cr - _cc
+    canonical_net_profit   = _cr - _cc - _co
     if _cr == 0:
         canonical_gross_margin = 0
         canonical_net_margin   = 0
@@ -3471,7 +3472,7 @@ def build_report(d):
     _co = sum((clean(it.get('total')) or 0) for it in opex_items)
     if _co != (canonical_opex or 0):
         canonical.opex       = _co if _co > 0 else None
-        canonical.net_profit = (_cr - _cc - _co) if canonical_revenue is not None else None
+        canonical.net_profit = _cr - _cc - _co
         canonical.net_margin = ((_cr - _cc - _co) / _cr * 100) if _cr != 0 else (0 if _cr == 0 else None)
         canonical_opex       = canonical.opex
         canonical_net_profit = canonical.net_profit
