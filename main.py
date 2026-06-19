@@ -112,6 +112,12 @@ def _fmtp100(n):
     v = clean(n)
     return fmtp(v / 100) if v is not None else 'N/A'
 
+def _fmtk(v):
+    """Compact £Xk currency label with correct negative-sign placement (-£5k not £-5k)."""
+    if v is None: return '—'
+    if v < 0: return f'-£{abs(v)/1000:.0f}k'
+    return f'£{v/1000:.0f}k'
+
 _approx_pat = re.compile(r'(£[\d,]+(?:\.\d+)?(?:k|K)?|\d+(?:\.\d+)?%)')
 
 def _approx_numbers(text):
@@ -184,7 +190,7 @@ def bar_chart(labels, values, w=100, h=50, show_trend=False, C_ACCENT=None):
         bh = (v/maxv)*chart_h if maxv > 0 else 1
         dw.add(Rect(x, base_y, bw, max(bh,1), fillColor=c, strokeColor=None))
         dw.add(String(x+bw/2, base_y-8*mm, normalise_period_label(l), fontSize=6.5, fillColor=GRAY, textAnchor='middle'))
-        lab = f'£{v/1000:.0f}k' if v >= 1000 else f'£{v:.0f}'
+        lab = _fmtk(v) if abs(v) >= 1000 else fmt(v)
         dw.add(String(x+bw/2, base_y+max(bh,1)+1.5*mm, lab, fontSize=6.5, fillColor=NAVY, textAnchor='middle', fontName=FONT_SANS_BOLD))
         if has_peak and avg > 0 and v > avg * 1.2:
             dw.add(String(x+bw/2, base_y+max(bh,1)+5*mm, '★ Peak',
@@ -401,14 +407,14 @@ def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=
 
         # Bar 1: Revenue
         dw.add(Rect(bx(0), base_y, bw, full_h, fillColor=TEAL, strokeColor=None))
-        label_in(bx(0), base_y, full_h, f'Revenue £{rev/1000:.0f}k')
+        label_in(bx(0), base_y, full_h, f'Revenue {_fmtk(rev)}')
         axis_label(bx(0), 'Revenue')
 
         # Bar 2: GP (teal) + COGS (red)
         dw.add(Rect(bx(1), base_y,       bw, gp_h,   fillColor=TEAL,    strokeColor=None))
         dw.add(Rect(bx(1), base_y+gp_h,  bw, cogs_h, fillColor=RED_TEXT, strokeColor=None))
-        label_in(bx(1), base_y,      gp_h,   f'GP £{gross/1000:.0f}k')
-        label_in(bx(1), base_y+gp_h, cogs_h, f'COGS £{cogs/1000:.0f}k')
+        label_in(bx(1), base_y,      gp_h,   f'GP {_fmtk(gross)}')
+        label_in(bx(1), base_y+gp_h, cogs_h, f'COGS {_fmtk(cogs)}')
         axis_label(bx(1), 'Cost Breakdown')
 
         # Bar 3: NP (navy) + OpEx (amber) + faded COGS pad
@@ -416,10 +422,10 @@ def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=
         dw.add(Rect(bx(2), base_y+net_h,             bw, opex_h, fillColor=AMBER,     strokeColor=None))
         if pad_h > 0:
             dw.add(Rect(bx(2), base_y+net_h+opex_h, bw, pad_h,  fillColor=COGS_FADE, strokeColor=None))
-        label_in(bx(2), base_y,               net_h,  f'NP £{net/1000:.0f}k')
-        label_in(bx(2), base_y+net_h,         opex_h, f'OpEx £{opex/1000:.0f}k')
+        label_in(bx(2), base_y,               net_h,  f'NP {_fmtk(net)}')
+        label_in(bx(2), base_y+net_h,         opex_h, f'OpEx {_fmtk(opex)}')
         if pad_h > 7*mm:
-            label_in(bx(2), base_y+net_h+opex_h, pad_h, f'COGS £{cogs/1000:.0f}k')
+            label_in(bx(2), base_y+net_h+opex_h, pad_h, f'COGS {_fmtk(cogs)}')
         axis_label(bx(2), 'Profit Breakdown')
 
         # Baseline
@@ -1534,8 +1540,11 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
         _sp = s('sp', fontSize=2, leading=2)
         return [Paragraph('', _sp)] + [Paragraph('', _sp)] * (ncols + 2)
 
+    # Use periods_full (original-cased labels) for column headers when available;
+    # fall back to periods (already normalised). Never use periods_keys (lowercase lookup keys).
+    _hdr_periods = (periods_full if (periods_full and len(periods_full) >= ncols) else periods)
     hdr = [th('', False)]
-    for p in periods: hdr.append(th(normalise_period_label(p)))
+    for p in _hdr_periods[:ncols]: hdr.append(th(normalise_period_label(str(p))))
     hdr.append(th('Total'))
     hdr.append(th('Avg'))
 
@@ -1660,7 +1669,8 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
     return t
 
 def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items,
-                         prev_revenue_items, prev_cogs_items, prev_opex_items, C_ACCENT):
+                         prev_revenue_items, prev_cogs_items, prev_opex_items, C_ACCENT,
+                         periods_full=None):
     def th(txt, right=True): return Paragraph(txt, ST_TH if right else ST_TH_L)
     def td(txt, right=True): return Paragraph(str(txt), ST_TD if right else ST_TD_L)
     def money(v, bold=False):
@@ -1703,8 +1713,10 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         it = get_prev_item(items_list, label_text)
         return it.get('total') if it else None
 
+    # Use periods_full (original-cased) for column headers when available.
+    _chdr_periods = (periods_full if (periods_full and len(periods_full) >= len(periods)) else periods)
     hdr = [th('',False)]
-    for p in periods: hdr.append(th(normalise_period_label(p)))
+    for p in _chdr_periods[:len(periods)]: hdr.append(th(normalise_period_label(str(p))))
     hdr += [th('Current'), th(prev_period_label), th('Chg %')]
 
     gray_s    = s('rem_lbl', fontName=FONT_SANS, fontSize=8,
@@ -2138,12 +2150,12 @@ def single_waterfall(rev_v, cogs_v, opex_v, net_v, w=82, h=85, muted=False, titl
         pad_h  = max(full_h - net_h - opex_h, 0)
 
         dw.add(Rect(bx(0), base_y, bw, full_h, fillColor=ct, strokeColor=None))
-        smart_lbl(bx(0), base_y, full_h, f'£{rev/1000:.0f}k')
+        smart_lbl(bx(0), base_y, full_h, _fmtk(rev))
         ax_lbl(bx(0), 'Revenue')
 
         dw.add(Rect(bx(1), base_y,       bw, gp_h,   fillColor=ct, strokeColor=None))
         dw.add(Rect(bx(1), base_y+gp_h,  bw, cogs_h, fillColor=cr, strokeColor=None))
-        smart_lbl(bx(1), base_y,      gp_h,   f'GP £{gross/1000:.0f}k')
+        smart_lbl(bx(1), base_y,      gp_h,   f'GP {_fmtk(gross)}')
         smart_lbl(bx(1), base_y+gp_h, cogs_h, 'COGS')
         ax_lbl(bx(1), 'Gross Profit')
 
@@ -2151,7 +2163,7 @@ def single_waterfall(rev_v, cogs_v, opex_v, net_v, w=82, h=85, muted=False, titl
         dw.add(Rect(bx(2), base_y+net_h,     bw, opex_h, fillColor=ca, strokeColor=None))
         if pad_h > 0:
             dw.add(Rect(bx(2), base_y+net_h+opex_h, bw, pad_h, fillColor=cf, strokeColor=None))
-        smart_lbl(bx(2), base_y,       net_h,  f'NP £{net/1000:.0f}k')
+        smart_lbl(bx(2), base_y,       net_h,  f'NP {_fmtk(net)}')
         smart_lbl(bx(2), base_y+net_h, opex_h, 'OpEx')
         ax_lbl(bx(2), 'Net Profit')
 
@@ -3448,7 +3460,9 @@ def build_report(d):
                         continue  # sign change guard
                     if m.group(2):
                         kv = tgt / 1000
-                        return f'£{kv:.0f}k' if kv == int(kv) else f'£{kv:.1f}k'
+                        _sign = '-£' if kv < 0 else '£'
+                        _abskv = abs(kv)
+                        return f'{_sign}{_abskv:.0f}k' if _abskv == int(_abskv) else f'{_sign}{_abskv:.1f}k'
                     return fmtfn(tgt)
             return m.group(0)
         def _ps(m):
@@ -3499,7 +3513,9 @@ def build_report(d):
                                 if (amt >= 0) == (_tgt >= 0):
                                     if m.group(2):
                                         _kv = _tgt / 1000
-                                        return f'£{_kv:.0f}k' if _kv == int(_kv) else f'£{_kv:.1f}k'
+                                        _ks = '-£' if _kv < 0 else '£'
+                                        _akv = abs(_kv)
+                                        return f'{_ks}{_akv:.0f}k' if _akv == int(_akv) else f'{_ks}{_akv:.1f}k'
                                     return fmt(_tgt)
                         return m.group(0)
                     return _kt_mpat.sub(_sub, str(text))
@@ -4103,7 +4119,7 @@ def build_report(d):
         story.append(PageBreak())
         story.append(KeepTogether([section_header('Full Profit & Loss Statement', C_ACCENT),Spacer(1,3*mm)]))
         if is_comparison:
-            story.append(comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, prev_revenue_items, prev_cogs_items, prev_opex_items, C_ACCENT))
+            story.append(comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, prev_revenue_items, prev_cogs_items, prev_opex_items, C_ACCENT, periods_full=periods_full))
         else:
             story.append(pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, periods_full=periods_full))
         story.append(Spacer(1,3*mm))
