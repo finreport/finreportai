@@ -1,4 +1,4 @@
-from flask import Flask, request, send_file
+from flask import Flask, request, send_file, jsonify
 import io, json, re
 from types import SimpleNamespace
 from reportlab.lib.pagesizes import A4
@@ -2509,6 +2509,173 @@ def intro_letter(d, prepared_by, is_wl, wl_contact, C_PRIMARY):
 
 # ── Build report ──────────────────────────────────────────────────────────────
 
+def _norm_label(lbl):
+    return re.sub(r'[^a-z0-9]', '', str(lbl).lower())
+
+def _labels_match(na, nb):
+    if na == nb: return True
+    shorter, longer = (na, nb) if len(na) <= len(nb) else (nb, na)
+    return len(shorter) >= 5 and longer.startswith(shorter)
+
+
+def _canonical_pipeline(d):
+    """
+    Run the canonical calculation pipeline and return validation result as a dict.
+    Used by /validate. Implements the same steps as build_report without PDF output.
+    """
+    def _ll(it):
+        return str(it.get('label', '')).lower()
+
+    def _nl(it):
+        return _norm_label(str(it.get('label', '')))
+
+    def _dedup(items):
+        def _canon(lbl):
+            n = _norm_label(lbl)
+            for sfx in ('ltd', 'limited', 'the', 'and'):
+                if n.endswith(sfx): n = n[:-len(sfx)]
+            return n.strip()
+        seen_keys, seen_norms, merged = [], [], {}
+        for it in items:
+            raw_lbl = str(it.get('label', '')).strip()
+            lbl = raw_lbl.lower()
+            nl = _canon(lbl)
+            matched_key = None
+            for idx, enl in enumerate(seen_norms):
+                if _labels_match(nl, enl):
+                    matched_key = seen_keys[idx]; break
+            if matched_key is None:
+                seen_keys.append(lbl); seen_norms.append(nl)
+                merged[lbl] = {'label': raw_lbl,
+                               'values': [clean(v) or 0 for v in it.get('values', [])],
+                               'total': clean(it.get('total'))}
+            else:
+                ex = merged[matched_key]
+                ev = ex['values']; nv = [clean(v) or 0 for v in it.get('values', [])]
+                ln = max(len(ev), len(nv))
+                ex['values'] = [(ev[j] if j < len(ev) else 0) + (nv[j] if j < len(nv) else 0) for j in range(ln)]
+                nt = clean(it.get('total'))
+                ex['total'] = (ex['total'] or 0) + (nt or 0)
+        return [merged[k] for k in seen_keys]
+
+    revenue_items = get_list(d, 'revenue_items')
+    cogs_items    = get_list(d, 'cogs_items')
+    opex_items    = get_list(d, 'opex_items')
+
+    _FORCED_COGS_KW = ('inventory','stock','beans','materials','components','parts',
+                       'ingredients','packaging','coffee','produce','raw')
+    _FORCED_OPEX_KW = ('wages','salary','salaries','rent','rates','utilities','power',
+                       'electric','gas','insurance','advertising','marketing','ads',
+                       'software','subscriptions','repairs','maintenance','misc',
+                       'professional','legal','telephone','accounting')
+
+    # Pass 1: move cogs items out of revenue
+    _new_rev, _forced_cogs = [], []
+    for it in revenue_items:
+        (_forced_cogs if any(kw in _ll(it) for kw in _FORCED_COGS_KW) else _new_rev).append(it)
+    revenue_items = _new_rev
+    _cogs_norms = [_nl(it) for it in cogs_items]
+    for it in _forced_cogs:
+        n = _nl(it)
+        if not any(_labels_match(n, cn) for cn in _cogs_norms):
+            cogs_items.append(it); _cogs_norms.append(n)
+
+    # Pass 2: move opex items out of cogs (never from revenue)
+    _new_cogs, _forced_opex = [], []
+    for it in cogs_items:
+        (_forced_opex if any(kw in _ll(it) for kw in _FORCED_OPEX_KW) else _new_cogs).append(it)
+    cogs_items = _new_cogs
+    _opex_norms = [_nl(it) for it in opex_items]
+    for it in _forced_opex:
+        n = _nl(it)
+        if not any(_labels_match(n, on) for on in _opex_norms):
+            opex_items.append(it); _opex_norms.append(n)
+
+    # Dedup + item total recalc
+    revenue_items = _dedup(revenue_items)
+    cogs_items    = _dedup(cogs_items)
+    opex_items    = _dedup(opex_items)
+    for it in revenue_items + cogs_items + opex_items:
+        it['total'] = sum(clean(v) or 0 for v in it.get('values', []))
+
+    # Ghost row removal
+    def _nonzero(it):
+        return (it.get('total') or 0) != 0 or any((clean(v) or 0) != 0 for v in it.get('values', []))
+    revenue_items = [it for it in revenue_items if _nonzero(it)]
+    cogs_items    = [it for it in cogs_items    if _nonzero(it)]
+    opex_items    = [it for it in opex_items    if _nonzero(it)]
+
+    # Canonical totals
+    _cr = sum(clean(it.get('total')) or 0 for it in revenue_items)
+    _cc = sum(clean(it.get('total')) or 0 for it in cogs_items)
+    _co = sum(clean(it.get('total')) or 0 for it in opex_items)
+    canonical_revenue     = _cr or None
+    canonical_cogs        = _cc or None
+    canonical_opex        = _co or None
+    canonical_net_profit  = (_cr - _cc - _co) if canonical_revenue is not None else None
+    canonical_gross_margin = ((_cr - _cc) / _cr * 100) if _cr > 0 else None
+    canonical_net_margin   = ((_cr - _cc - _co) / _cr * 100) if _cr > 0 else None
+
+    # Periods
+    periods_raw = d.get('periods') or d.get('period_labels') or []
+    if isinstance(periods_raw, str):
+        try:    periods_raw = json.loads(periods_raw)
+        except Exception: periods_raw = [p.strip() for p in periods_raw.split(',') if p.strip()]
+    periods_full = [str(p).strip() for p in periods_raw if str(p).strip()] \
+                   if isinstance(periods_raw, list) else []
+
+    # Per-period values + cross-footing
+    per_period = {}
+    failures   = []
+    for i, p in enumerate(periods_full):
+        pv_rev  = sum(clean(it.get('values', [])[i]) or 0 for it in revenue_items if i < len(it.get('values', [])))
+        pv_cogs = sum(clean(it.get('values', [])[i]) or 0 for it in cogs_items    if i < len(it.get('values', [])))
+        pv_opex = sum(clean(it.get('values', [])[i]) or 0 for it in opex_items    if i < len(it.get('values', [])))
+        pv_gp   = pv_rev - pv_cogs
+        pv_np   = pv_gp - pv_opex
+        pv_nm   = (pv_np / pv_rev * 100) if pv_rev > 0 else 0
+        per_period[p] = {'revenue': pv_rev, 'cogs': pv_cogs, 'opex': pv_opex,
+                         'gross_profit': pv_gp, 'net_profit': pv_np, 'net_margin': round(pv_nm, 2)}
+        # Cross-footing: period arithmetic
+        expected_np = pv_rev - pv_cogs - pv_opex
+        if abs(expected_np - pv_np) > 1:
+            failures.append(f'Period {p}: revenue minus cogs minus opex does not equal net_profit, '
+                            f'expected {expected_np:.2f} got {pv_np:.2f}')
+
+    # Cross-footing: item sum vs total
+    for it in revenue_items + cogs_items + opex_items:
+        it_sum = sum(clean(v) or 0 for v in it.get('values', []))
+        it_tot = clean(it.get('total')) or 0
+        if abs(it_sum - it_tot) > 1:
+            failures.append(f"Item '{it.get('label','?')}': sum of period values ({it_sum:.2f}) "
+                            f"does not equal item total ({it_tot:.2f})")
+
+    # Ground truth check
+    gt_check = {}
+    for field, canon_val in (('revenue', canonical_revenue), ('cogs', canonical_cogs), ('opex', canonical_opex)):
+        gt_val = clean(d.get(f'ground_truth_{field}'))
+        if gt_val is not None and canon_val is not None:
+            diff = abs(gt_val - canon_val)
+            ok   = diff <= 5
+            gt_check[field] = {'ground_truth': gt_val, 'canonical': canon_val, 'diff': round(diff, 2), 'ok': ok}
+            if not ok:
+                failures.append(f'Ground truth {field} {fmt(gt_val)} differs from canonical '
+                                f'{fmt(canon_val)} by {fmt(diff)}')
+
+    return {
+        'valid':                  len(failures) == 0,
+        'canonical_revenue':      canonical_revenue,
+        'canonical_cogs':         canonical_cogs,
+        'canonical_opex':         canonical_opex,
+        'canonical_net_profit':   canonical_net_profit,
+        'canonical_gross_margin': canonical_gross_margin,
+        'canonical_net_margin':   canonical_net_margin,
+        'per_period':             per_period,
+        'failures':               failures,
+        'ground_truth_check':     gt_check,
+    }
+
+
 def generate_canonical_narrative(d, canonical_revenue, canonical_net_profit, canonical_gross_profit,
                                   canonical_gross_margin, canonical_net_margin, canonical_cogs,
                                   canonical_opex, periods_full, per_period=None):
@@ -4200,6 +4367,22 @@ def generate():
     buf=build_report(data)
     dn = data.get('_download_name','report.pdf')
     return send_file(buf,mimetype='application/pdf',as_attachment=True,download_name=dn)
+
+@app.route('/validate', methods=['POST'])
+def validate():
+    """Run canonical pipeline and return validation result as JSON (no PDF generated)."""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        result = _canonical_pipeline(data)
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({
+            'valid': False,
+            'canonical_revenue': None, 'canonical_cogs': None, 'canonical_opex': None,
+            'canonical_net_profit': None, 'canonical_gross_margin': None, 'canonical_net_margin': None,
+            'per_period': {}, 'ground_truth_check': {},
+            'failures': [f'Internal pipeline error: {str(e)}'],
+        }), 200
 
 @app.route('/healthz')
 def health():
