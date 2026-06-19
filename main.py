@@ -97,14 +97,20 @@ def has_val(n):
 
 def fmt(n):
     v = clean(n)
-    return f'£{v:,.0f}' if v is not None else 'N/A'
+    if v is None: return 'N/A'
+    if v < 0: return f'-£{abs(v):,.0f}'
+    return f'£{v:,.0f}'
 
 def fmtp(n):
+    """Format a raw decimal ratio as a percentage. Input: 0.452 → 45.2%, 1.2087 → 120.9%"""
     v = clean(n)
     if v is None: return 'N/A'
-    if abs(v) > 1: v = v/100
-    if abs(v) > 9.99: return 'N/A'   # >999% absolute — display N/A
-    return f'{v:.1%}'
+    return f'{v*100:.1f}%'
+
+def _fmtp100(n):
+    """fmtp for values already in 0-100 scale (e.g. canonical gross/net margin stored as 45.2)."""
+    v = clean(n)
+    return fmtp(v / 100) if v is not None else 'N/A'
 
 _approx_pat = re.compile(r'(£[\d,]+(?:\.\d+)?(?:k|K)?|\d+(?:\.\d+)?%)')
 
@@ -276,7 +282,7 @@ def comparison_kpi_card(label, current_val, prev_val, is_pct=False):
     def _p100(v): return None if v is None else (v if v > 1 else v * 100)
     def fv(v):
         if not has_val(v): return 'N/A'
-        return fmtp(v) if is_pct else fmt(v)
+        return _fmtp100(v) if is_pct else fmt(v)
     curr_display = fv(current_val)
     prev_display = fv(prev_val)
     try:
@@ -851,21 +857,21 @@ def traffic_light_dashboard(d, C_ACCENT, period_revs=None):
         gm = clean(d.get('gross_margin'))
         if gm is not None:
             if gm >= 60:
-                cards.append(tl_card('Gross Margin', fmtp(gm), 'Strong', GREEN_TEXT))
+                cards.append(tl_card('Gross Margin', _fmtp100(gm), 'Strong', GREEN_TEXT))
             elif gm >= 40:
-                cards.append(tl_card('Gross Margin', fmtp(gm), 'Moderate', AMBER_TEXT))
+                cards.append(tl_card('Gross Margin', _fmtp100(gm), 'Moderate', AMBER_TEXT))
             else:
-                cards.append(tl_card('Gross Margin', fmtp(gm), 'Low', RED_TEXT))
+                cards.append(tl_card('Gross Margin', _fmtp100(gm), 'Low', RED_TEXT))
 
         # Net Margin vs 10% benchmark — canonical value is always 0-100 scale
         nm = clean(d.get('net_margin'))
         if nm is not None:
             if nm >= 10:
-                cards.append(tl_card('Net Margin', fmtp(nm), 'Healthy', GREEN_TEXT))
+                cards.append(tl_card('Net Margin', _fmtp100(nm), 'Healthy', GREEN_TEXT))
             elif nm >= 5:
-                cards.append(tl_card('Net Margin', fmtp(nm), 'Watch', AMBER_TEXT))
+                cards.append(tl_card('Net Margin', _fmtp100(nm), 'Watch', AMBER_TEXT))
             else:
-                cards.append(tl_card('Net Margin', fmtp(nm), 'Low', RED_TEXT))
+                cards.append(tl_card('Net Margin', _fmtp100(nm), 'Low', RED_TEXT))
 
         # OpEx Control vs 40% of revenue
         opex_v = clean(d.get('total_opex'))
@@ -1292,7 +1298,7 @@ def goals_section(goals_raw, d, C_ACCENT):
 
             if target is None: continue
 
-            def fv(v): return fmtp(v) if is_pct else fmt(v)
+            def fv(v): return _fmtp100(v) if is_pct else fmt(v)
 
             if actual is not None and target > 0:
                 ratio = actual / target
@@ -1459,7 +1465,7 @@ def breakeven_section(d, C_ACCENT):
         rows = [
             [Paragraph('Item', ST_TH_L), Paragraph('Value', ST_TH)],
             [Paragraph('Fixed Operating Costs', ST_TD_L), Paragraph(fmt(opex_v), ST_TD)],
-            [Paragraph('Gross Margin', ST_TD_L), Paragraph(fmtp(gm_v), ST_TD)],
+            [Paragraph('Gross Margin', ST_TD_L), Paragraph(_fmtp100(gm_v), ST_TD)],
             [Paragraph('Break-Even Revenue Required', be_bold_s), Paragraph(fmt(be_rev), be_boldr_s)],
             [Paragraph(f'Revenue above {fmt(be_rev)} generates profit.', note_s), ''],
         ]
@@ -1592,7 +1598,7 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
         gp = {'label':'GROSS PROFIT','values':gp_pvs,'total':gp_total}
         rows.append(item_row(gp, bold=True, indent=False)); teal_rows.append(len(rows)-1)
         if has_val(d.get('gross_margin')):
-            rows.append([label('Gross Margin %', sub=True)] + [td('—')]*ncols + [td(fmtp(d.get('gross_margin')))] + [td('—')])
+            rows.append([label('Gross Margin %', sub=True)] + [td('—')]*ncols + [td(_fmtp100(d.get('gross_margin')))] + [td('—')])
         rows.append(blank()); blank_rows.append(len(rows)-1)
 
     if opex_items or has_val(d.get('total_opex')):
@@ -1620,7 +1626,7 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
             _r = rev_pvs[i] if i < len(rev_pvs) else 0
             _n = np_pvs[i]  if i < len(np_pvs)  else 0
             nm_pvs.append(fmtp(_n / _r) if _r > 0 else '—')   # fmtp handles 0-1 decimal
-        rows.append([label('Net Margin %', sub=True)] + [td(x) for x in nm_pvs] + [td(fmtp(d.get('net_margin')))] + [td('—')])
+        rows.append([label('Net Margin %', sub=True)] + [td(x) for x in nm_pvs] + [td(_fmtp100(d.get('net_margin')))] + [td('—')])
 
     # Data sources footnote
     period_labels = ', '.join(periods_full if periods_full else periods)
@@ -1796,7 +1802,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         rows.append([label('GROSS PROFIT',bold=True)]+[money(c_gp_pvs[i] if i < len(c_gp_pvs) else None,True) for i in range(ncols)]+[money(gp_curr,True),money(gp_prev,True),pct_change(gp_curr,gp_prev,True)])
         teal_rows.append(len(rows)-1)
         if has_val(d.get('gross_margin')):
-            rows.append([label('Gross Margin %',sub=True)]+['—']*ncols+[td(fmtp(d.get('gross_margin'))),td(fmtp(d.get('prev_gross_margin'))),td('—')])
+            rows.append([label('Gross Margin %',sub=True)]+['—']*ncols+[td(_fmtp100(d.get('gross_margin'))),td(_fmtp100(d.get('prev_gross_margin'))),td('—')])
         rows.append(blank()); blank_rows.append(len(rows)-1)
 
     if opex_items or has_val(d.get('total_opex')):
@@ -1819,7 +1825,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
     if has_val(d.get('net_margin')):
         c_nm_pvs = [fmtp(c_np_pvs[i] / c_rev_pvs[i]) if i < len(c_rev_pvs) and c_rev_pvs[i] > 0 else '—'
                     for i in range(ncols)]   # fmtp handles 0-1 decimal
-        rows.append([label('Net Margin %',sub=True)]+[td(x) for x in c_nm_pvs]+[td(fmtp(d.get('net_margin'))),td(fmtp(d.get('prev_net_margin'))),td('—')])
+        rows.append([label('Net Margin %',sub=True)]+[td(x) for x in c_nm_pvs]+[td(_fmtp100(d.get('net_margin'))),td(_fmtp100(d.get('prev_net_margin'))),td('—')])
 
     # Data sources footnote
     ncols_total = ncols + 3
@@ -1893,19 +1899,19 @@ def comparison_executive_box(d, C_ACCENT):
             if abs(chg) >= 0.5:
                 word = 'expanded' if chg > 0 else 'contracted'
                 parts.append(
-                    f"Gross margin {word} by {abs(chg):.1f}pp from {fmtp(prev_gm)} to {fmtp(curr_gm)}."
+                    f"Gross margin {word} by {abs(chg):.1f}pp from {_fmtp100(prev_gm)} to {_fmtp100(curr_gm)}."
                 )
             else:
-                parts.append(f"Gross margin held steady at {fmtp(curr_gm)} (prior: {fmtp(prev_gm)}).")
+                parts.append(f"Gross margin held steady at {_fmtp100(curr_gm)} (prior: {_fmtp100(prev_gm)}).")
             metrics_up += (1 if chg >= 0 else 0); metrics_down += (0 if chg >= 0 else 1)
 
         if curr_nm is not None and prev_nm is not None:
             chg = curr_nm - prev_nm
             if abs(chg) >= 0.5:
                 word = 'improved' if chg > 0 else 'compressed'
-                parts.append(f"Net margin {word} from {fmtp(prev_nm)} to {fmtp(curr_nm)}.")
+                parts.append(f"Net margin {word} from {_fmtp100(prev_nm)} to {_fmtp100(curr_nm)}.")
             else:
-                parts.append(f"Net margin stable at {fmtp(curr_nm)}.")
+                parts.append(f"Net margin stable at {_fmtp100(curr_nm)}.")
             metrics_up += (1 if chg >= 0 else 0); metrics_down += (0 if chg >= 0 else 1)
 
         if metrics_down == 0 and metrics_up > 0:
@@ -1952,7 +1958,7 @@ def comparison_summary_box(d, C_ACCENT):
         def curr_cell(curr_v, prev_v, is_pct=False, bold=False):
             cv = clean(curr_v); pv = clean(prev_v)
             fn = FONT_SANS_BOLD if bold else FONT_SANS
-            disp = (fmtp if is_pct else fmt)(cv) if cv is not None else '—'
+            disp = (_fmtp100(cv) if is_pct else fmt(cv)) if cv is not None else '—'
             if cv is not None and pv is not None:
                 if is_pct:
                     # Normalise both to 0-100 scale before computing pp change
@@ -2055,8 +2061,8 @@ def margin_comparison_table(d, C_ACCENT):
         def mrow(lbl, prev_v, curr_v, lib=False):
             cp, tp = chg_cells(curr_v, prev_v, lib)
             return [Paragraph(lbl, ST_TD_L),
-                    Paragraph(fmtp(prev_v) if prev_v is not None else '—', ST_TD),
-                    Paragraph(fmtp(curr_v) if curr_v is not None else '—', ST_TD),
+                    Paragraph(_fmtp100(prev_v) if prev_v is not None else '—', ST_TD),
+                    Paragraph(_fmtp100(curr_v) if curr_v is not None else '—', ST_TD),
                     cp, tp]
 
         rows = [hdr]
@@ -3882,8 +3888,8 @@ def build_report(d):
         kpi_defs = [
             (fmt(_kpi_rev)                                         , 'Total Revenue', d.get('period','')),
             (fmt(_kpi_np)   if _kpi_np  is not None else 'N/A'    , 'Net Profit',    d.get('period','')),
-            (fmtp(_kpi_gm)  if _kpi_gm  is not None else 'N/A'    , 'Gross Margin',  'Average'),
-            (fmtp(_kpi_nm)  if _kpi_nm  is not None else 'N/A'    , 'Net Margin',    'Average'),
+            (_fmtp100(_kpi_gm)  if _kpi_gm  is not None else 'N/A'    , 'Gross Margin',  'Average'),
+            (_fmtp100(_kpi_nm)  if _kpi_nm  is not None else 'N/A'    , 'Net Margin',    'Average'),
         ]
         kpis = [kpi_card(v,l,sub) for (v,l,sub) in kpi_defs]
 
