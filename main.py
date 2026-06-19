@@ -2408,9 +2408,10 @@ def next_90_days_section(d, C_ACCENT):
         if not actions:
             return []
 
+        _next_lbls = d.get('_next_period_labels') or []
         items = []
         for i, action in enumerate(actions, 1):
-            month_lbl = f'Month {i}'
+            month_lbl = _next_lbls[i-1] if i-1 < len(_next_lbls) else f'Month {i}'
             num_s = s(f'nd{i}num', fontName=FONT_SANS_BOLD, fontSize=7, textColor=GOLD, leading=10, alignment=TA_CENTER)
             txt_s = s(f'nd{i}txt', fontName=FONT_SANS, fontSize=8.5, textColor=DARK, leading=13)
             row = Table([[
@@ -3003,6 +3004,37 @@ def build_report(d):
 
     print(f"[periods_full sorted] {periods_full}", flush=True)
 
+    # ── Compute next-period labels for 90-day forecast cards ─────────────────
+    _MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    def _compute_next_periods(pf_list):
+        if not pf_list:
+            return []
+        last = pf_list[-1]
+        _mo = re.search(
+            r'\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|'
+            r'jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)'
+            r'[\s\-]?(\d{2,4})\b', last, re.IGNORECASE)
+        if not _mo:
+            return []
+        _mon_name = _mo.group(1).lower()[:3]
+        if _mon_name == 'sep': _mon_name = 'sep'
+        _mon_num = _MONTH_ORD.get(_mon_name)
+        if _mon_num is None:
+            return []
+        _yr = int(_mo.group(2))
+        if _yr < 100:
+            _yr += 2000
+        labels = []
+        for _add in range(1, 4):
+            _nm = ((_mon_num - 1 + _add) % 12)
+            _ny = _yr + ((_mon_num - 1 + _add) // 12)
+            _ny_short = _ny % 100
+            labels.append(f"{_MONTH_ABBR[_nm]}-{_ny_short:02d}")
+        return labels
+    _next_period_labels = _compute_next_periods(periods_full)
+    d['_next_period_labels'] = _next_period_labels
+    print(f"[next_period_labels] {_next_period_labels}", flush=True)
+
     # COGS value validation: if a period value exceeds the item total by >10%
     # it is almost certainly a misrouted revenue figure — zero it out
     for _it in cogs_items:
@@ -3497,6 +3529,49 @@ def build_report(d):
     if isinstance(d.get('key_takeaways'), list):
         d['key_takeaways'] = [_approx_numbers(s) for s in d.get('key_takeaways', [])]
 
+    # ── Fix month references in 90-day forecast text ─────────────────────────
+    # If Claude emitted wrong month names (e.g. Jan/Feb/Mar for a non-Q1 report),
+    # replace them with the correct next-period labels derived from periods_full.
+    _all_known_months = re.compile(
+        r'\b(January|February|March|April|May|June|July|August|'
+        r'September|October|November|December|'
+        r'Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\b', re.IGNORECASE)
+    _periods_full_set = set(p.lower() for p in periods_full)
+    # Also treat abbreviated forms present in periods_full as known-good
+    _pf_abbr_set = set()
+    for _pf in periods_full:
+        _m = re.match(r'([A-Za-z]{3})', _pf)
+        if _m:
+            _pf_abbr_set.add(_m.group(1).lower())
+    _npl = d.get('_next_period_labels') or []
+    _npl_abbr_set = set()
+    for _np in _npl:
+        _m = re.match(r'([A-Za-z]{3})', _np)
+        if _m:
+            _npl_abbr_set.add(_m.group(1).lower())
+
+    def _fix_month_refs(text):
+        if not text or not _npl:
+            return text
+        _cursor = [0]
+        def _replace_month(mo):
+            word = mo.group(1).lower()[:3]
+            if word in _pf_abbr_set or word in _npl_abbr_set:
+                return mo.group(0)
+            # Replace wrong month with next labels in sequence
+            idx = _cursor[0]
+            label = _npl[idx] if idx < len(_npl) else _npl[-1]
+            _cursor[0] = min(_cursor[0] + 1, len(_npl) - 1)
+            return label
+        return _all_known_months.sub(_replace_month, text)
+
+    for _fmf in ('next_90_days', 'timeline_90_days'):
+        _fmv = d.get(_fmf)
+        if _fmv and isinstance(_fmv, str):
+            d[_fmf] = _fix_month_refs(_fmv)
+        elif _fmv and isinstance(_fmv, list):
+            d[_fmf] = [_fix_month_refs(str(x)) for x in _fmv]
+
     # Step 7 removed — item totals already recalculated before Step 4 (Item 5)
 
     period_rev = [d.get('revenue_'+k) for k in periods_keys]
@@ -3582,6 +3657,53 @@ def build_report(d):
         else:
             _cleaned_fls.append(_fl)
     flag_lines = _cleaned_fls
+
+    # ── COGS narrative contradiction filter ───────────────────────────────────
+    # When canonical_cogs is present, remove any generated text that claims
+    # COGS data is missing or unavailable — those statements are contradicted
+    # by the data we actually have.
+    _NO_COGS_PAT = re.compile(
+        r'(missing\s+cogs|no\s+cogs\s+data|limited\s+cost\s+data|cogs\s+not\s+provided|'
+        r'cogs\s+(?:data\s+)?(?:is\s+)?(?:unavailable|absent|not\s+available|not\s+included)|'
+        r'no\s+cost\s+of\s+(?:goods|sales)\s+data|'
+        r'cost\s+of\s+(?:goods(?:\s+sold)?|sales)\s+(?:data\s+)?'
+        r'(?:not\s+(?:provided|available|included)|missing|absent|unavailable))',
+        re.IGNORECASE
+    )
+    if canonical_cogs is not None and canonical_cogs > 0:
+        # Remove contradicting flags
+        _pre_len = len(flag_lines)
+        flag_lines = [_fl for _fl in flag_lines
+                      if not _NO_COGS_PAT.search(_fl.split('|')[-1] if '|' in _fl else _fl)]
+        if len(flag_lines) < _pre_len:
+            print(f"[cogs_filter] removed {_pre_len - len(flag_lines)} contradicting flag(s)", flush=True)
+
+        # Remove contradicting key_takeaways items
+        _kt = d.get('key_takeaways')
+        if isinstance(_kt, list):
+            _kt_before = len(_kt)
+            d['key_takeaways'] = [_s for _s in _kt if not _NO_COGS_PAT.search(str(_s))]
+            if len(d['key_takeaways']) < _kt_before:
+                print(f"[cogs_filter] removed {_kt_before - len(d['key_takeaways'])} contradicting takeaway(s)", flush=True)
+        elif isinstance(_kt, str) and _NO_COGS_PAT.search(_kt):
+            _filtered = ' '.join(
+                sent.strip() for sent in re.split(r'(?<=[.!?])\s+', _kt)
+                if not _NO_COGS_PAT.search(sent)
+            )
+            d['key_takeaways'] = _filtered
+
+        # Remove contradicting sentences from recommendations and outlook
+        for _ncf in ('strategic_recommendations', 'outlook', 'recommendations'):
+            _ncv = d.get(_ncf)
+            if isinstance(_ncv, str) and _NO_COGS_PAT.search(_ncv):
+                _filtered = ' '.join(
+                    sent.strip() for sent in re.split(r'(?<=[.!?])\s+', _ncv)
+                    if not _NO_COGS_PAT.search(sent)
+                )
+                d[_ncf] = _filtered
+                print(f"[cogs_filter] cleaned contradicting sentences from {_ncf}", flush=True)
+            elif isinstance(_ncv, list):
+                d[_ncf] = [_s for _s in _ncv if not _NO_COGS_PAT.search(str(_s))]
 
     # Cross-footing validation (Item 14)
     _xfoot_ok = True
