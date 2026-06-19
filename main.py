@@ -118,6 +118,18 @@ def _fmtk(v):
     if v < 0: return f'-£{abs(v)/1000:.0f}k'
     return f'£{v/1000:.0f}k'
 
+def safe_text(s):
+    """Return s if it can be rendered safely by ReportLab, or an ASCII-normalised fallback."""
+    if not isinstance(s, str):
+        s = str(s) if s is not None else ''
+    try:
+        # TrueType Liberation fonts handle full Unicode; this is a belt-and-braces check
+        s.encode('utf-8')
+        return s
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        import unicodedata
+        return unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode('ascii')
+
 _approx_pat = re.compile(r'(£[\d,]+(?:\.\d+)?(?:k|K)?|\d+(?:\.\d+)?%)')
 
 def _approx_numbers(text):
@@ -2624,6 +2636,11 @@ def _canonical_pipeline(d):
     cogs_items    = [it for it in cogs_items    if _nonzero(it)]
     opex_items    = [it for it in opex_items    if _nonzero(it)]
 
+    # Per-period values + cross-footing
+    per_period = {}
+    failures   = []
+    warnings   = []
+
     # Canonical totals
     _cr = sum(clean(it.get('total')) or 0 for it in revenue_items)
     _cc = sum(clean(it.get('total')) or 0 for it in cogs_items)
@@ -2632,8 +2649,16 @@ def _canonical_pipeline(d):
     canonical_cogs        = _cc or None
     canonical_opex        = _co or None
     canonical_net_profit  = (_cr - _cc - _co) if canonical_revenue is not None else None
-    canonical_gross_margin = ((_cr - _cc) / _cr * 100) if _cr > 0 else None
-    canonical_net_margin   = ((_cr - _cc - _co) / _cr * 100) if _cr > 0 else None
+    if _cr == 0:
+        canonical_gross_margin = 0
+        canonical_net_margin   = 0
+        failures.append('Warning: Revenue is zero — margins are set to 0 (not calculable from zero revenue).')
+    elif _cr is not None and _cr != 0:
+        canonical_gross_margin = (_cr - _cc) / _cr * 100
+        canonical_net_margin   = (_cr - _cc - _co) / _cr * 100
+    else:
+        canonical_gross_margin = None
+        canonical_net_margin   = None
 
     # Periods
     periods_raw = d.get('periods') or d.get('period_labels') or []
@@ -2643,16 +2668,24 @@ def _canonical_pipeline(d):
     periods_full = [str(p).strip() for p in periods_raw if str(p).strip()] \
                    if isinstance(periods_raw, list) else []
 
-    # Per-period values + cross-footing
-    per_period = {}
-    failures   = []
+    # Fix 6: warn on any individual item period values that are negative
+    for _chk_it in revenue_items + cogs_items + opex_items:
+        _chk_lbl = _chk_it.get('label', '?')
+        for _pi, _pv in enumerate(_chk_it.get('values', [])):
+            _pv_c = clean(_pv)
+            if _pv_c is not None and _pv_c < 0:
+                _plbl = periods_full[_pi] if _pi < len(periods_full) else f'period {_pi+1}'
+                warnings.append(f'Warning: {_chk_lbl} has a negative value ({fmt(_pv_c)}) in {_plbl} — verify this is intentional (e.g. refund or credit) and not a data entry error.')
+
     for i, p in enumerate(periods_full):
         pv_rev  = sum(clean(it.get('values', [])[i]) or 0 for it in revenue_items if i < len(it.get('values', [])))
         pv_cogs = sum(clean(it.get('values', [])[i]) or 0 for it in cogs_items    if i < len(it.get('values', [])))
         pv_opex = sum(clean(it.get('values', [])[i]) or 0 for it in opex_items    if i < len(it.get('values', [])))
         pv_gp   = pv_rev - pv_cogs
         pv_np   = pv_gp - pv_opex
-        pv_nm   = (pv_np / pv_rev * 100) if pv_rev > 0 else 0
+        pv_nm   = (pv_np / pv_rev * 100) if pv_rev != 0 else 0
+        if pv_rev < 0:
+            failures.append(f'Warning: revenue was negative in {p} ({fmt(pv_rev)}) — this may indicate refunds or credit adjustments exceeding sales for the period.')
         per_period[p] = {'revenue': pv_rev, 'cogs': pv_cogs, 'opex': pv_opex,
                          'gross_profit': pv_gp, 'net_profit': pv_np, 'net_margin': round(pv_nm, 2)}
         # Cross-footing: period arithmetic
@@ -2681,6 +2714,12 @@ def _canonical_pipeline(d):
                 failures.append(f'Ground truth {field} {fmt(gt_val)} differs from canonical '
                                 f'{fmt(canon_val)} by {fmt(diff)}')
 
+    # Fix 7: plausibility warnings
+    if canonical_gross_margin is not None and canonical_gross_margin > 95:
+        warnings.append(f'Warning: Gross margin of {canonical_gross_margin:.1f}% is unusually high — verify COGS items were not omitted.')
+    if canonical_net_margin is not None and canonical_net_margin > 80:
+        warnings.append(f'Warning: Net margin of {canonical_net_margin:.1f}% is unusually high — verify all expense categories were captured.')
+
     return {
         'valid':                  len(failures) == 0,
         'canonical_revenue':      canonical_revenue,
@@ -2691,6 +2730,7 @@ def _canonical_pipeline(d):
         'canonical_net_margin':   canonical_net_margin,
         'per_period':             per_period,
         'failures':               failures,
+        'warnings':               warnings,
         'ground_truth_check':     gt_check,
     }
 
@@ -2836,6 +2876,16 @@ def generate_canonical_narrative(d, canonical_revenue, canonical_net_profit, can
 
 def build_report(d):
     buf=io.BytesIO()
+
+    # Apply safe_text to key string fields that may contain accented or special characters
+    for _st_key in ('business_name', 'period', 'accountant_notes', 'exec_summary',
+                    'recommendations', 'outlook', 'one_liner', 'industry_context'):
+        if d.get(_st_key) and isinstance(d[_st_key], str):
+            d[_st_key] = safe_text(d[_st_key])
+    for _st_list_key in ('revenue_items', 'cogs_items', 'opex_items'):
+        for _st_it in get_list(d, _st_list_key):
+            if 'label' in _st_it and isinstance(_st_it['label'], str):
+                _st_it['label'] = safe_text(_st_it['label'])
 
     # ── Opex rescue snapshot: taken before ANY processing ─────────────────────
     # Re-parse the raw opex JSON so we have a clean reference independent of
@@ -3070,6 +3120,7 @@ def build_report(d):
         _nl = _norm_label(_it_orig.get('label', ''))
         if _nl: _all_orig_labels.add(_nl)
 
+    # ============ CRITICAL — DO NOT MODIFY WITHOUT FULL REGRESSION TEST AGAINST ALL 5 TEST CSVs ============
     # ── Step 2: Deduplicate items by label (merge values element-wise) ────────
     def _dedup(items, bucket_name='items'):
         def _canon(lbl):
@@ -3312,8 +3363,18 @@ def build_report(d):
     _co = canonical_opex    or 0
     canonical_gross_profit = (_cr - _cc)       if canonical_revenue is not None else None
     canonical_net_profit   = (_cr - _cc - _co) if canonical_revenue is not None else None
-    canonical_gross_margin = ((_cr - _cc) / _cr * 100)       if _cr > 0 else None
-    canonical_net_margin   = ((_cr - _cc - _co) / _cr * 100) if _cr > 0 else None
+    if _cr == 0:
+        canonical_gross_margin = 0
+        canonical_net_margin   = 0
+        _zero_rev_flag = 'FLAG|Data Note|Margin not calculable — zero revenue reported for this period. Margins have been set to 0.'
+        _existing_flags = str(d.get('flags', ''))
+        d['flags'] = _zero_rev_flag + ('FLAGSEP' + _existing_flags if _existing_flags else '')
+    elif _cr != 0:
+        canonical_gross_margin = (_cr - _cc) / _cr * 100
+        canonical_net_margin   = (_cr - _cc - _co) / _cr * 100
+    else:
+        canonical_gross_margin = None
+        canonical_net_margin   = None
 
     # Wrap in frozen canonical namespace (Item 1)
     canonical = SimpleNamespace(
@@ -3389,7 +3450,7 @@ def build_report(d):
     if _co != (canonical_opex or 0):
         canonical.opex       = _co if _co > 0 else None
         canonical.net_profit = (_cr - _cc - _co) if canonical_revenue is not None else None
-        canonical.net_margin = ((_cr - _cc - _co) / _cr * 100) if _cr > 0 else None
+        canonical.net_margin = ((_cr - _cc - _co) / _cr * 100) if _cr != 0 else (0 if _cr == 0 else None)
         canonical_opex       = canonical.opex
         canonical_net_profit = canonical.net_profit
         canonical_net_margin = canonical.net_margin
@@ -3405,7 +3466,13 @@ def build_report(d):
         _pv_opex = sum(clean(it.get('values', [])[i]) or 0 for it in opex_items    if i < len(it.get('values', [])))
         _pv_gp   = _pv_rev - _pv_cogs
         _pv_np   = _pv_rev - _pv_cogs - _pv_opex
-        _pv_nm   = (_pv_np / _pv_rev * 100) if _pv_rev > 0 else 0
+        _pv_nm   = (_pv_np / _pv_rev * 100) if _pv_rev != 0 else 0
+        _pv_lbl  = periods_full[i] if i < len(periods_full) else k
+        if _pv_rev < 0:
+            _neg_rev_flag = (f'INFO|Negative Revenue — {_pv_lbl}|Revenue was negative ({fmt(_pv_rev)}) '
+                             f'in {_pv_lbl}. This may indicate refunds or credit adjustments exceeding sales.')
+            _existing_flags_nr = str(d.get('flags', ''))
+            d['flags'] = _neg_rev_flag + ('FLAGSEP' + _existing_flags_nr if _existing_flags_nr else '')
         d['revenue_'      + k] = _pv_rev
         d['cogs_'         + k] = _pv_cogs
         d['opex_'         + k] = _pv_opex
@@ -4507,10 +4574,22 @@ def prompt_schema():
 
 @app.route('/generate', methods=['POST'])
 def generate():
-    data=request.get_json(force=True)
-    buf=build_report(data)
-    dn = data.get('_download_name','report.pdf')
-    return send_file(buf,mimetype='application/pdf',as_attachment=True,download_name=dn)
+    import traceback as _tb
+    data = request.get_json(force=True) or {}
+    report_ref = None
+    try:
+        report_ref = data.get('report_ref') or data.get('_report_ref')
+        buf = build_report(data)
+        dn = data.get('_download_name', 'report.pdf')
+        return send_file(buf, mimetype='application/pdf', as_attachment=True, download_name=dn)
+    except Exception as _e:
+        _detail = str(_e)[:200]
+        print(f"[ERROR /generate] Report generation failed — full traceback:\n{_tb.format_exc()}", flush=True)
+        return jsonify({
+            'error':      'Report generation failed',
+            'detail':     _detail,
+            'report_ref': report_ref,
+        }), 500
 
 @app.route('/validate', methods=['POST'])
 def validate():
