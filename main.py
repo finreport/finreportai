@@ -109,9 +109,9 @@ def fmtp(n):
 _approx_pat = re.compile(r'(£[\d,]+(?:\.\d+)?(?:k|K)?|\d+(?:\.\d+)?%)')
 
 def _approx_numbers(text):
-    """Prefix monetary/percentage figures in Claude text with 'approx.' to distinguish from canonical."""
+    """Wrap monetary/pct figures in Claude text with italic 'approximately' prefix (ReportLab XML)."""
     if not text: return text
-    return _approx_pat.sub(lambda m: f'approx. {m.group(0)}', str(text))
+    return _approx_pat.sub(lambda m: f'<i>approximately {m.group(0)}</i>', str(text))
 
 _MONTH_CORRECTIONS = {
     'mur': 'Mar', 'jab': 'Jan', 'fab': 'Feb', 'arp': 'Apr', 'mei': 'May',
@@ -462,6 +462,9 @@ def tax_estimate_section(net_profit, C_ACCENT):
              Paragraph('', ST_TD), Paragraph('', ST_TD)],
             [Paragraph('Net Profit (this period)', ST_TD_L),
              Paragraph(fmt(np_val), ST_TD), Paragraph('', ST_TD)],
+            [Paragraph('Annualised profit (×4, for rate band)', ST_TD_L),
+             Paragraph(fmt(np_annual), ST_TD),
+             Paragraph(f'Rate band determined from annualised figure', s('txn', fontSize=7, textColor=GRAY, leading=10))],
             [Paragraph(f'Estimated Tax ({rate_note})', ST_TD_L),
              Paragraph(f'({fmt(tax_est)})', s('txr', fontSize=8, textColor=RED_TEXT, alignment=TA_RIGHT, leading=11)),
              Paragraph('', ST_TD)],
@@ -2555,29 +2558,32 @@ def generate_canonical_narrative(d, canonical_revenue, canonical_net_profit, can
 
     exec_summary = ' '.join(filter(None, [s1, s2, s3]))
 
-    # analysis_text — cost structure
+    # key_trends — cost structure + period peak/trough
     rev = canonical_revenue or 0
-    a_parts = []
+    kt_parts = []
     if canonical_cogs is not None and rev > 0:
-        a_parts.append(f'cost of goods sold represented {canonical_cogs / rev * 100:.1f}% of revenue ({fmt(canonical_cogs)})')
+        kt_parts.append(f'cost of goods sold represented {canonical_cogs / rev * 100:.1f}% of revenue ({fmt(canonical_cogs)})')
     if canonical_opex is not None and rev > 0:
-        a_parts.append(f'operating expenses accounted for {canonical_opex / rev * 100:.1f}% of revenue ({fmt(canonical_opex)})')
-    analysis_text = ''
-    if a_parts:
-        analysis_text = 'For this period, ' + ' and '.join(a_parts) + '.'
+        kt_parts.append(f'operating expenses accounted for {canonical_opex / rev * 100:.1f}% of revenue ({fmt(canonical_opex)})')
+    key_trends = ''
+    if kt_parts:
+        key_trends = 'For this period, ' + ' and '.join(kt_parts) + '.'
         if canonical_net_margin is not None:
             if canonical_net_margin > 0:
-                analysis_text += (f' The resulting net margin of {canonical_net_margin:.1f}% means the business'
-                                  f' retained {canonical_net_margin:.1f}p in every £1 of revenue after all costs.')
+                key_trends += (f' The resulting net margin of {canonical_net_margin:.1f}% means the business'
+                               f' retained {canonical_net_margin:.1f}p in every £1 of revenue after all costs.')
             else:
-                analysis_text += (f' The resulting net margin of {canonical_net_margin:.1f}% indicates total costs'
-                                  f' exceeded revenue for this period.')
-    if n_per > 1 and len(per_rev_vals) == n_per:
-        peak_i   = per_rev.index(max(per_rev_vals))
-        trough_i = per_rev.index(min(per_rev_vals))
-        if peak_i != trough_i and peak_i < n_per and trough_i < n_per:
-            analysis_text += (f' Revenue peaked in {periods_full[peak_i]} ({fmt(per_rev_vals[peak_i])})'
-                              f' and was lowest in {periods_full[trough_i]} ({fmt(per_rev_vals[trough_i])}).')
+                key_trends += (f' The resulting net margin of {canonical_net_margin:.1f}% indicates total costs'
+                               f' exceeded revenue for this period.')
+    if n_per > 1 and len(per_rev_vals) >= 2:
+        peak_i   = per_rev_vals.index(max(per_rev_vals))
+        trough_i = per_rev_vals.index(min(per_rev_vals))
+        if peak_i != trough_i and peak_i < len(periods_full) and trough_i < len(periods_full):
+            key_trends += (f' Revenue peaked in {periods_full[peak_i]} ({fmt(per_rev_vals[peak_i])})'
+                           f' and was lowest in {periods_full[trough_i]} ({fmt(per_rev_vals[trough_i])}).')
+
+    # Keep analysis_text as alias for backward compat
+    analysis_text = key_trends
 
     # one_liner for callout box
     ol_parts = []
@@ -2586,7 +2592,32 @@ def generate_canonical_narrative(d, canonical_revenue, canonical_net_profit, can
     if canonical_net_margin is not None: ol_parts.append(f'net margin {canonical_net_margin:.1f}%')
     one_liner = (f'{bname}: ' + ', '.join(ol_parts) + '.') if ol_parts else ''
 
-    # industry_context_text — canonical benchmark commentary
+    # industry_context_text — industry-specific benchmark commentary
+    _industry = str(d.get('industry', '')).strip().lower()
+    # Benchmarks by sector: (gross_margin_low, gross_margin_high, net_margin_low, net_margin_high, label)
+    _SECTOR_BENCHMARKS = {
+        'retail':       (25, 50, 2, 8,  'retail'),
+        'hospitality':  (55, 75, 3, 10, 'hospitality'),
+        'cafe':         (55, 75, 3, 10, 'hospitality / café'),
+        'restaurant':   (55, 75, 3, 10, 'hospitality / restaurant'),
+        'technology':   (60, 85, 10, 25,'technology / SaaS'),
+        'saas':         (60, 85, 10, 25,'technology / SaaS'),
+        'professional': (40, 70, 10, 20,'professional services'),
+        'consulting':   (40, 70, 10, 20,'consulting'),
+        'manufacturing':(25, 45, 4, 12, 'manufacturing'),
+        'construction': (20, 40, 3, 10, 'construction'),
+        'healthcare':   (35, 60, 5, 15, 'healthcare'),
+        'ecommerce':    (30, 55, 3, 10, 'e-commerce'),
+    }
+    _bench = None
+    for _kw, _bval in _SECTOR_BENCHMARKS.items():
+        if _kw in _industry:
+            _bench = _bval
+            break
+    if _bench is None:
+        _bench = (40, 60, 5, 15, 'SME')  # generic fallback
+
+    _gm_lo, _gm_hi, _nm_lo, _nm_hi, _sec_label = _bench
     ic_parts = []
     if canonical_gross_margin is not None and canonical_net_margin is not None:
         ic_parts.append(
@@ -2594,24 +2625,25 @@ def generate_canonical_narrative(d, canonical_revenue, canonical_net_profit, can
             f'{canonical_gross_margin:.1f}% and net margin of {canonical_net_margin:.1f}%'
             + (f' for {period}.' if period else '.')
         )
-        if canonical_gross_margin > 60:
-            ic_parts.append('Gross margin performance is strong relative to typical SME benchmarks of 40–60%.')
-        elif canonical_gross_margin >= 40:
-            ic_parts.append('Gross margin is within the typical SME benchmark range of 40–60%.')
+        if canonical_gross_margin > _gm_hi:
+            ic_parts.append(f'Gross margin is strong relative to the {_sec_label} benchmark range of {_gm_lo}–{_gm_hi}%.')
+        elif canonical_gross_margin >= _gm_lo:
+            ic_parts.append(f'Gross margin is within the {_sec_label} benchmark range of {_gm_lo}–{_gm_hi}%.')
         else:
-            ic_parts.append('Gross margin is below the typical SME benchmark range of 40–60% and may warrant a review of direct costs.')
-        if canonical_net_margin > 15:
-            ic_parts.append('Net profitability is above average for the sector.')
-        elif canonical_net_margin >= 10:
-            ic_parts.append('Net margin is in line with sector benchmarks of 10–20%.')
+            ic_parts.append(f'Gross margin is below the {_sec_label} benchmark range of {_gm_lo}–{_gm_hi}% and may warrant a review of direct costs.')
+        if canonical_net_margin > _nm_hi:
+            ic_parts.append(f'Net profitability is above the {_sec_label} sector average of {_nm_lo}–{_nm_hi}%.')
+        elif canonical_net_margin >= _nm_lo:
+            ic_parts.append(f'Net margin is in line with {_sec_label} sector benchmarks of {_nm_lo}–{_nm_hi}%.')
         else:
-            ic_parts.append('Net margin has room for improvement relative to sector benchmarks of 10–20%.')
+            ic_parts.append(f'Net margin has room for improvement relative to {_sec_label} sector benchmarks of {_nm_lo}–{_nm_hi}%.')
     industry_context_text = ' '.join(ic_parts)
 
     return {
-        'exec_summary':       exec_summary,
-        'analysis_text':      analysis_text,
-        'one_liner':          one_liner,
+        'exec_summary':          exec_summary,
+        'key_trends':            key_trends,
+        'analysis_text':         analysis_text,   # alias
+        'one_liner':             one_liner,
         'industry_context_text': industry_context_text,
     }
 
@@ -3089,6 +3121,26 @@ def build_report(d):
     if canonical.opex and abs(_exp_opex - canonical.opex) > 1:
         print(f"[WARN csv-verify] opex mismatch: canonical={canonical.opex} expected={_exp_opex}", flush=True)
 
+    # ── Ground truth injection (Item 17) ─────────────────────────────────────
+    _gt_flags = []
+    _gt_rev  = clean(d.get('ground_truth_revenue'))
+    _gt_cogs = clean(d.get('ground_truth_cogs'))
+    _gt_opex = clean(d.get('ground_truth_opex'))
+    if _gt_rev is not None and canonical.revenue is not None and abs(_gt_rev - canonical.revenue) > 5:
+        print(f"[CRITICAL ground-truth] revenue: canonical={canonical.revenue} gt={_gt_rev} diff={abs(_gt_rev-canonical.revenue):.2f}", flush=True)
+        _gt_flags.append('FLAG|DATA REVIEW REQUIRED|Revenue figure differs from pre-computed ground truth by '
+                         f'{fmt(abs(_gt_rev - canonical.revenue))}. Please review source data.')
+    if _gt_cogs is not None and canonical.cogs is not None and abs(_gt_cogs - canonical.cogs) > 5:
+        print(f"[CRITICAL ground-truth] cogs: canonical={canonical.cogs} gt={_gt_cogs} diff={abs(_gt_cogs-canonical.cogs):.2f}", flush=True)
+        _gt_flags.append('FLAG|DATA REVIEW REQUIRED|Cost of goods differs from pre-computed ground truth by '
+                         f'{fmt(abs(_gt_cogs - canonical.cogs))}. Please review source data.')
+    if _gt_opex is not None and canonical.opex is not None and abs(_gt_opex - canonical.opex) > 5:
+        print(f"[CRITICAL ground-truth] opex: canonical={canonical.opex} gt={_gt_opex} diff={abs(_gt_opex-canonical.opex):.2f}", flush=True)
+        _gt_flags.append('FLAG|DATA REVIEW REQUIRED|Operating expenses differ from pre-computed ground truth by '
+                         f'{fmt(abs(_gt_opex - canonical.opex))}. Please review source data.')
+    if _gt_flags:
+        _existing_flags = str(d.get('flags', ''))
+        d['flags'] = ('FLAGSEP'.join(_gt_flags) + ('FLAGSEP' + _existing_flags if _existing_flags else ''))
 
     # ── Opex sanity guard: zero row-drift values exceeding canonical_cogs ────
     # If any single opex item value or total exceeds the total cost of goods
@@ -3328,9 +3380,9 @@ def build_report(d):
         toc_sections.append('Revenue Performance & Margins')
     if opex_with_totals:
         toc_sections.append('Operating Expense Breakdown')
-    if revenue_items or cogs_items or opex_items or has_val(d.get('total_revenue')):
+    if revenue_items or cogs_items or opex_items or canonical.revenue is not None:
         toc_sections.append('Profit & Loss Statement')
-        if has_val(d.get('total_cogs')) or has_val(d.get('total_opex')):
+        if canonical.cogs is not None or canonical.opex is not None:
             toc_sections.append('P&L Waterfall')
     if has_cashflow:
         toc_sections.append('Cash Flow Summary')
@@ -3342,7 +3394,7 @@ def build_report(d):
         toc_sections.append('Goals & Targets')
     if has_industry:
         toc_sections.append('Industry Context')
-    if _narr['analysis_text']:
+    if _narr.get('key_trends') or _narr.get('analysis_text'):
         toc_sections.append('Key Trends & Analysis')
     if has_recs:
         toc_sections.append('Recommendations')
@@ -3878,10 +3930,11 @@ def build_report(d):
         ]))
 
     # ── Key Trends ────────────────────────────────────────────────────────────
-    if _narr['analysis_text']:
+    _kt_text = _narr.get('key_trends') or _narr.get('analysis_text', '')
+    if _kt_text:
         story.append(KeepTogether([
             section_header('Key Trends & Analysis', C_ACCENT), Spacer(1,3*mm),
-            Paragraph(_narr['analysis_text'], ST_BODY),
+            Paragraph(_kt_text, ST_BODY),
             Spacer(1,3*mm),
         ]))
 
