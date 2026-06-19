@@ -3032,6 +3032,7 @@ def build_report(d):
 
     print(f"[periods_full] {periods_full}", flush=True)
 
+    # ============ CRITICAL — DO NOT MODIFY WITHOUT FULL REGRESSION TEST AGAINST ALL 5 TEST CSVs ============
     # ── Sort periods chronologically, then reorder item values to match ───────
     _MONTH_ORD = {
         'january': 1, 'february': 2, 'march': 3, 'april': 4,
@@ -3103,6 +3104,7 @@ def build_report(d):
     d['_next_period_labels'] = _next_period_labels
     print(f"[next_period_labels] {_next_period_labels}", flush=True)
 
+    # ============ END CRITICAL SECTION ============
     # COGS value validation: if a period value exceeds the item total by >10%
     # it is almost certainly a misrouted revenue figure — zero it out
     for _it in cogs_items:
@@ -3163,7 +3165,9 @@ def build_report(d):
     revenue_items = _dedup(revenue_items, 'revenue')
     cogs_items    = _dedup(cogs_items, 'cogs')
     opex_items    = _dedup(opex_items, 'opex')
+    # ============ END CRITICAL SECTION ============
 
+    # ============ CRITICAL — DO NOT MODIFY WITHOUT FULL REGRESSION TEST AGAINST ALL 5 TEST CSVs ============
     # ── Category blocklist enforcement (Item 2) — BEFORE reclassification ─────
     def _label_lower(it):
         return str(it.get('label', '')).lower()
@@ -3257,6 +3261,7 @@ def build_report(d):
     revenue_items = _dedup(revenue_items, 'revenue-post')
     cogs_items    = _dedup(cogs_items, 'cogs-post')
     opex_items    = _dedup(opex_items, 'opex-post')
+    # ============ END CRITICAL SECTION ============
 
     # ── Hallucination guard: remove phantom items not in original input ────────
     def _is_genuine(it):
@@ -3308,6 +3313,7 @@ def build_report(d):
             _final_opex_norms.append(_mn)
             print(f"[misc guard] restored '{_mi.get('label','?')}' to opex_items", flush=True)
 
+    # ============ CRITICAL — DO NOT MODIFY WITHOUT FULL REGRESSION TEST AGAINST ALL 5 TEST CSVs ============
     # ── Opex rescue: restore any original opex item lost during pipeline ──────
     # Uses original_opex_labels snapshot taken at the very start of build_report.
     _final_opex_nl_set = set(_norm_label(str(it.get('label', ''))) for it in opex_items)
@@ -3344,6 +3350,7 @@ def build_report(d):
             _final_cogs_norms.add(_orig_nl)
             print(f"[rescue] restored cogs '{_fresh.get('label','?')}'", flush=True)
 
+    # ============ END CRITICAL SECTION ============
     # Recalculate item totals from values — discard Claude's provided totals (Item 5)
     for _it in revenue_items + cogs_items + opex_items:
         _it['total'] = sum(clean(v) or 0 for v in _it.get('values', []))
@@ -3354,6 +3361,7 @@ def build_report(d):
         if (it.get('total') or 0) != 0 or any((clean(v) or 0) != 0 for v in it.get('values', []))
     ]
 
+    # ============ CRITICAL — DO NOT MODIFY WITHOUT FULL REGRESSION TEST AGAINST ALL 5 TEST CSVs ============
     # ── Step 4: Canonical totals from item.total fields ───────────────────────
     canonical_revenue = sum(clean(it.get('total')) or 0 for it in revenue_items) or None
     canonical_cogs    = sum(clean(it.get('total')) or 0 for it in cogs_items)    or None
@@ -3486,6 +3494,7 @@ def build_report(d):
             'gross_profit': _pv_gp, 'net_profit': _pv_np, 'net_margin': _pv_nm
         }
 
+    # ============ END CRITICAL SECTION ============
     # ── Step 6: Write canonical totals back to d (overwrite Claude's values) ──
     if canonical_revenue      is not None: d['total_revenue'] = canonical_revenue
     if canonical_cogs         is not None: d['total_cogs']    = canonical_cogs
@@ -3811,6 +3820,7 @@ def build_report(d):
 
     if not _xfoot_ok:
         flag_lines.insert(0, 'INFO|Data Note|Data verified with minor rounding adjustments applied.')
+    _data_verified = _xfoot_ok  # used later to add a verified badge to the footer
 
     if flag_lines:
         toc_sections.append('Flags & Items to Watch')
@@ -4480,6 +4490,13 @@ def build_report(d):
     else:
         main_footer = [Paragraph(f"Prepared by {prepared_by} &nbsp;·&nbsp; {period_short} &nbsp;·&nbsp; Ref: {report_ref} &nbsp;·&nbsp; Generated {gen_date} &nbsp;·&nbsp; Confidential",s('ftxt',fontSize=6,textColor=colors.HexColor('#6B7280'),alignment=TA_CENTER,leading=9))]
     ft_rows = []
+    if _data_verified:
+        _verified_badge = Paragraph(
+            'Data Verified ✓',
+            s('dv_badge', fontName=FONT_SANS, fontSize=6.5,
+              textColor=colors.HexColor('#0E8A7A'), alignment=TA_CENTER, leading=9)
+        )
+        ft_rows.append([_verified_badge])
     if disclaimer_row:
         for item in disclaimer_row: ft_rows.append([item])
     for item in main_footer: ft_rows.append([item])
@@ -4605,6 +4622,7 @@ def validate():
             'canonical_net_profit': None, 'canonical_gross_margin': None, 'canonical_net_margin': None,
             'per_period': {}, 'ground_truth_check': {},
             'failures': [f'Internal pipeline error: {str(e)}'],
+            'warnings': [],
         }), 200
 
 @app.route('/healthz')
