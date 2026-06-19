@@ -132,6 +132,20 @@ def safe_text(s):
 
 _approx_pat = re.compile(r'(£[\d,]+(?:\.\d+)?(?:k|K)?|\d+(?:\.\d+)?%)')
 
+# Section-header label filter — items whose label is a section heading (e.g. "REVENUE",
+# "COST OF GOODS SOLD") must be stripped before dedup/reclassification.
+_SECTION_HEADER_LABELS = frozenset({
+    'REVENUE', 'COST OF GOODS SOLD', 'GROSS PROFIT', 'OPERATING EXPENSES',
+    'NET PROFIT', 'CASH FLOW', 'BALANCE SHEET', 'BUSINESS CONTEXT',
+})
+_ALLCAPS_LABEL_RE = re.compile(r'^[A-Z\s]+$')
+
+def _is_section_header_item(it):
+    lbl = str(it.get('label', '')).strip()
+    if not lbl:
+        return False
+    return lbl.upper() in _SECTION_HEADER_LABELS or bool(_ALLCAPS_LABEL_RE.match(lbl))
+
 def _approx_numbers(text):
     """Wrap monetary/pct figures in Claude text with italic 'approximately' prefix (ReportLab XML)."""
     if not text: return text
@@ -152,7 +166,7 @@ def normalise_period_label(label):
     key = lbl[:3].lower()
     if key in _MONTH_CORRECTIONS:
         lbl = _MONTH_CORRECTIONS[key] + lbl[3:]
-    return lbl[:6]
+    return lbl[:10]
 
 def get_list(d, key):
     raw = d.get(key)
@@ -2592,6 +2606,10 @@ def _canonical_pipeline(d):
     revenue_items = get_list(d, 'revenue_items')
     cogs_items    = get_list(d, 'cogs_items')
     opex_items    = get_list(d, 'opex_items')
+    # Strip section-header pseudo-items before any dedup/reclassification
+    revenue_items = [it for it in revenue_items if not _is_section_header_item(it)]
+    cogs_items    = [it for it in cogs_items    if not _is_section_header_item(it)]
+    opex_items    = [it for it in opex_items    if not _is_section_header_item(it)]
 
     _FORCED_COGS_KW = ('inventory','stock','beans','materials','components','parts',
                        'ingredients','packaging','coffee','produce','raw')
@@ -2996,6 +3014,10 @@ def build_report(d):
     revenue_items = get_list(d, 'revenue_items')
     cogs_items    = get_list(d, 'cogs_items')
     opex_items    = get_list(d, 'opex_items')
+    # Strip section-header pseudo-items before any dedup/reclassification
+    revenue_items = [it for it in revenue_items if not _is_section_header_item(it)]
+    cogs_items    = [it for it in cogs_items    if not _is_section_header_item(it)]
+    opex_items    = [it for it in opex_items    if not _is_section_header_item(it)]
     # Snapshots for rescue step (Item 7)
     original_revenue_labels = {re.sub(r'[^a-z0-9]', '', str(it.get('label','')).lower()): it for it in revenue_items if re.sub(r'[^a-z0-9]', '', str(it.get('label','')).lower())}
     original_cogs_labels    = {re.sub(r'[^a-z0-9]', '', str(it.get('label','')).lower()): it for it in cogs_items    if re.sub(r'[^a-z0-9]', '', str(it.get('label','')).lower())}
