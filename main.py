@@ -2720,6 +2720,20 @@ def _canonical_pipeline(d):
     if canonical_net_margin is not None and canonical_net_margin > 80:
         warnings.append(f'Warning: Net margin of {canonical_net_margin:.1f}% is unusually high — verify all expense categories were captured.')
 
+    # CSV total integrity check
+    _csv_total = clean(d.get('csv_total_absolute_value'))
+    if _csv_total is not None and _csv_total > 0:
+        _pipeline_total = sum(
+            abs(clean(it.get('total')) or 0)
+            for it in revenue_items + cogs_items + opex_items
+        )
+        _tolerance = max(_csv_total * 0.01, 5)
+        if abs(_pipeline_total - _csv_total) > _tolerance:
+            failures.append(
+                f'Data integrity check failed: CSV contained £{_csv_total:,.0f} total value '
+                f'but only £{_pipeline_total:,.0f} was accounted for across all categories.'
+            )
+
     return {
         'valid':                  len(failures) == 0,
         'canonical_revenue':      canonical_revenue,
@@ -4613,6 +4627,14 @@ def validate():
     """Run canonical pipeline and return validation result as JSON (no PDF generated)."""
     try:
         data = request.get_json(force=True, silent=True) or {}
+        # Accept csv_total from JSON body (csv_total_absolute_value) or URL query param (csv_total)
+        if data.get('csv_total_absolute_value') is None:
+            _qs = request.args.get('csv_total')
+            if _qs is not None:
+                try:
+                    data['csv_total_absolute_value'] = float(_qs)
+                except (ValueError, TypeError):
+                    pass
         result = _canonical_pipeline(data)
         return jsonify(result), 200
     except Exception as e:
