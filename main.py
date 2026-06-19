@@ -2652,7 +2652,7 @@ def _canonical_pipeline(d):
     if _cr == 0:
         canonical_gross_margin = 0
         canonical_net_margin   = 0
-        failures.append('Warning: Revenue is zero — margins are set to 0 (not calculable from zero revenue).')
+        warnings.append('Warning: Revenue is zero — margins are set to 0 (not calculable from zero revenue).')
     elif _cr is not None and _cr != 0:
         canonical_gross_margin = (_cr - _cc) / _cr * 100
         canonical_net_margin   = (_cr - _cc - _co) / _cr * 100
@@ -2685,7 +2685,7 @@ def _canonical_pipeline(d):
         pv_np   = pv_gp - pv_opex
         pv_nm   = (pv_np / pv_rev * 100) if pv_rev != 0 else 0
         if pv_rev < 0:
-            failures.append(f'Warning: revenue was negative in {p} ({fmt(pv_rev)}) — this may indicate refunds or credit adjustments exceeding sales for the period.')
+            warnings.append(f'Warning: revenue was negative in {p} ({fmt(pv_rev)}) — this may indicate refunds or credit adjustments exceeding sales for the period.')
         per_period[p] = {'revenue': pv_rev, 'cogs': pv_cogs, 'opex': pv_opex,
                          'gross_profit': pv_gp, 'net_profit': pv_np, 'net_margin': round(pv_nm, 2)}
         # Cross-footing: period arithmetic
