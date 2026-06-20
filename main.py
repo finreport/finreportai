@@ -2761,6 +2761,7 @@ def _canonical_pipeline(d):
         'canonical_gross_margin': canonical_gross_margin,
         'canonical_net_margin':   canonical_net_margin,
         'per_period':             per_period,
+        'periods_full':           periods_full,
         'failures':               failures,
         'warnings':               warnings,
         'ground_truth_check':     gt_check,
@@ -4659,6 +4660,24 @@ def validate():
                 except (ValueError, TypeError):
                     pass
         result = _canonical_pipeline(data)
+        # Generate exec_summary using the same narrative function as build_report
+        _gross_profit = (result['canonical_revenue'] or 0) - (result['canonical_cogs'] or 0)
+        try:
+            _narr = generate_canonical_narrative(
+                data,
+                result['canonical_revenue'],
+                result['canonical_net_profit'],
+                _gross_profit,
+                result['canonical_gross_margin'],
+                result['canonical_net_margin'],
+                result['canonical_cogs'],
+                result['canonical_opex'],
+                result.get('periods_full') or [],
+                per_period=result.get('per_period'),
+            )
+            result['exec_summary'] = _narr.get('exec_summary', '')
+        except Exception:
+            result['exec_summary'] = ''
         return jsonify(result), 200
     except Exception as e:
         return jsonify({
@@ -4668,6 +4687,7 @@ def validate():
             'per_period': {}, 'ground_truth_check': {},
             'failures': [f'Internal pipeline error: {str(e)}'],
             'warnings': [],
+            'exec_summary': '',
         }), 200
 
 @app.route('/healthz')
