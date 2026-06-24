@@ -88,7 +88,7 @@ ST_FLAG_B  = s('flagb', fontName=FONT_SANS, fontSize=8, textColor=colors.HexColo
 def clean(n):
     if n is None: return None
     txt = str(n).strip().upper()
-    if txt in ('NA','N/A','','NONE','NULL','-','—'): return None
+    if txt in ('NA','N/A','','NONE','NULL','-','-'): return None
     try: return float(str(n).replace(',','').replace('£','').replace('%','').replace('$','').strip())
     except: return None
 
@@ -102,7 +102,7 @@ def fmt(n):
     return f'£{v:,.0f}'
 
 def fmtp(n):
-    """Format a raw decimal ratio as a percentage. Input: 0.452 → 45.2%, 1.2087 → 120.9%"""
+    """Format a raw decimal ratio as a percentage. Input: 0.452 > 45.2%, 1.2087 > 120.9%"""
     v = clean(n)
     if v is None: return 'N/A'
     return f'{v*100:.1f}%'
@@ -114,7 +114,7 @@ def _fmtp100(n):
 
 def _fmtk(v):
     """Compact £Xk currency label with correct negative-sign placement (-£5k not £-5k)."""
-    if v is None: return '—'
+    if v is None: return '-'
     if v < 0: return f'-£{abs(v)/1000:.0f}k'
     return f'£{v/1000:.0f}k'
 
@@ -130,9 +130,27 @@ def safe_text(s):
         import unicodedata
         return unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode('ascii')
 
+_SANITISE_MAP = {
+    '→': '>', '←': '<', '▲': '(up)', '▼': '(dn)',
+    '►': '>', '▶': '>', '•': '-', '●': '-',
+    '◆': '-', '■': '-', '□': '-', '✓': '+',
+    '✔': '+', '✗': 'x', '✘': 'x', '★': '*',
+    '☆': '*', '≈': '~', '—': '-', '–': '-',
+}
+
+def sanitise_text(s):
+    """Replace non-Latin-1 Unicode symbols with safe ASCII equivalents for ReportLab rendering.
+    Characters in the printable Latin-1 range (<=U+00FF, e.g. £) are kept as-is."""
+    if not isinstance(s, str):
+        s = str(s) if s is not None else ''
+    for ch, rep in _SANITISE_MAP.items():
+        if ch in s:
+            s = s.replace(ch, rep)
+    return ''.join(c if ord(c) <= 0xFF else '' for c in s)
+
 _approx_pat = re.compile(r'(£[\d,]+(?:\.\d+)?(?:k|K)?|\d+(?:\.\d+)?%)')
 
-# Section-header label filter — items whose label is a section heading (e.g. "REVENUE",
+# Section-header label filter - items whose label is a section heading (e.g. "REVENUE",
 # "COST OF GOODS SOLD") must be stripped before dedup/reclassification.
 _SECTION_HEADER_LABELS = frozenset({
     'REVENUE', 'COST OF GOODS SOLD', 'GROSS PROFIT', 'OPERATING EXPENSES',
@@ -219,7 +237,7 @@ def bar_chart(labels, values, w=100, h=50, show_trend=False, C_ACCENT=None):
         lab = _fmtk(v) if abs(v) >= 1000 else fmt(v)
         dw.add(String(x+bw/2, base_y+max(bh,1)+1.5*mm, lab, fontSize=6.5, fillColor=NAVY, textAnchor='middle', fontName=FONT_SANS_BOLD))
         if has_peak and avg > 0 and v > avg * 1.2:
-            dw.add(String(x+bw/2, base_y+max(bh,1)+5*mm, '★ Peak',
+            dw.add(String(x+bw/2, base_y+max(bh,1)+5*mm, '* Peak',
                           fontSize=6, fillColor=GOLD, textAnchor='middle', fontName=FONT_SANS_BOLD))
     dw.add(Line(8*mm, base_y, w*mm-5*mm, base_y, strokeColor=BORDER, strokeWidth=0.5))
     if show_trend and len(vals) >= 2:
@@ -324,19 +342,19 @@ def comparison_kpi_card(label, current_val, prev_val, is_pct=False):
                 cv2 = _p100(cv); pv2 = _p100(pv)
                 diff = cv2 - pv2
                 pos  = diff >= 0
-                growth_str = f"{'▲' if pos else '▼'} {abs(diff):.1f}pp"
+                growth_str = f"{'(up)' if pos else '(dn)'} {abs(diff):.1f}pp"
                 gc = GREEN_TEXT if pos else RED_TEXT
             elif pv != 0:
                 growth = ((cv - pv) / abs(pv)) * 100
                 pos = growth >= 0
-                growth_str = f"{'▲' if pos else '▼'} {abs(growth):.1f}%"
+                growth_str = f"{'(up)' if pos else '(dn)'} {abs(growth):.1f}%"
                 gc = GREEN_TEXT if pos else RED_TEXT
             else:
-                growth_str = '—'; gc = GRAY
+                growth_str = '-'; gc = GRAY
         else:
-            growth_str = '—'; gc = GRAY
+            growth_str = '-'; gc = GRAY
     except:
-        growth_str = '—'; gc = GRAY
+        growth_str = '-'; gc = GRAY
     growth_s = s('ckg', fontName=FONT_SANS_BOLD, fontSize=7.5, textColor=gc, leading=10, alignment=TA_CENTER)
     prev_s   = s('ckp', fontSize=7, textColor=GRAY, leading=9, alignment=TA_CENTER)
     data = [
@@ -391,7 +409,7 @@ def expense_pie_chart(labels, values, w=80, h=85):
     except Exception:
         return None
 
-# ── Waterfall chart — stacked bars ───────────────────────────────────────────
+# ── Waterfall chart - stacked bars ───────────────────────────────────────────
 
 def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=90):
     try:
@@ -457,7 +475,7 @@ def waterfall_chart(total_revenue, total_cogs, total_opex, net_profit, w=175, h=
         # Baseline
         dw.add(Line(legend_w, base_y, (w-3)*mm, base_y, strokeColor=BORDER, strokeWidth=0.5))
 
-        # Legend — vertical, left side, top-aligned with bars
+        # Legend - vertical, left side, top-aligned with bars
         items = [
             (TEAL,     'Revenue / GP'),
             (RED_TEXT, 'COGS'),
@@ -508,7 +526,7 @@ def tax_estimate_section(net_profit, C_ACCENT):
              Paragraph('', ST_TD)],
             [Paragraph('Estimated Profit After Tax', s('txb', fontName=FONT_SANS_BOLD, fontSize=9, textColor=NAVY, leading=13)),
              Paragraph(fmt(after_tax), s('txbr', fontName=FONT_SANS_BOLD, fontSize=9, textColor=NAVY, alignment=TA_RIGHT, leading=13)),
-             Paragraph('Estimate only — consult your accountant for exact liability.',
+             Paragraph('Estimate only - consult your accountant for exact liability.',
                       s('txn', fontSize=7, textColor=GRAY, leading=10))],
         ]
         t = Table(rows, colWidths=[75*mm, 50*mm, 50*mm])
@@ -528,7 +546,7 @@ def tax_estimate_section(net_profit, C_ACCENT):
     except Exception:
         return None
 
-# ── Cover page — full A4 height ───────────────────────────────────────────────
+# ── Cover page - full A4 height ───────────────────────────────────────────────
 
 def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, report_ref):
     try:
@@ -556,7 +574,7 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                 c.setFillColor(TEAL)
                 c.rect(0, 0, 4, ph, fill=1, stroke=0)
 
-                # Teal angular shapes — bottom right
+                # Teal angular shapes - bottom right
                 c.setFillColor(colors.Color(14/255, 138/255, 122/255, 0.13))
                 p = c.beginPath()
                 p.moveTo(pw, 0); p.lineTo(pw, ph*0.45); p.lineTo(pw*0.32, 0)
@@ -567,7 +585,7 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                 p2.moveTo(pw, 0); p2.lineTo(pw, ph*0.28); p2.lineTo(pw*0.55, 0)
                 p2.close(); c.drawPath(p2, fill=1, stroke=0)
 
-                # ── ZONE 1 — Firm header (top) ─────────────────────────────
+                # ── ZONE 1 - Firm header (top) ─────────────────────────────
                 firm_y = ph - 20*mm   # baseline ~258mm from bottom
 
                 if is_wl and wl_logo and wl_logo.upper() not in ('NA','N/A','','NONE'):
@@ -605,7 +623,7 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                 c.setLineWidth(0.8)
                 c.line(14*mm, rule_y - 1.5*mm, pw - 8*mm, rule_y - 1.5*mm)
 
-                # ── ZONE 2 — Content identifier (mid-upper) ───────────────
+                # ── ZONE 2 - Content identifier (mid-upper) ───────────────
                 accent_y = 185*mm
                 c.setFillColor(GOLD)
                 c.rect(14*mm, accent_y, 20*mm, 2, fill=1, stroke=0)
@@ -617,34 +635,34 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                 c.setFont(FONT_SANS_BOLD, 6.5)
                 c.drawCentredString(14*mm + 22*mm, pill_y + 2.5*mm, 'FINANCIAL REPORT')
 
-                # ── ZONE 3 — Business name block (dominant, lower-middle) ──
-                prep_y = pill_y - 20*mm     # ~149mm — PREPARED FOR label
+                # ── ZONE 3 - Business name block (dominant, lower-middle) ──
+                prep_y = pill_y - 20*mm     # ~149mm - PREPARED FOR label
                 c.setFillColor(GOLD)
                 c.setFont(FONT_SANS_BOLD, 7)
                 c.drawString(14*mm, prep_y, 'PREPARED FOR')
 
                 # Business name: font size scales down for long names
                 bname_size = 30 if len(bname) <= 22 else (24 if len(bname) <= 32 else 19)
-                bname_y = prep_y - 14*mm    # ~135mm — dominant text baseline
+                bname_y = prep_y - 14*mm    # ~135mm - dominant text baseline
                 c.setFillColor(WHITE)
                 c.setFont(FONT_SERIF_BOLD, bname_size)
                 c.drawString(14*mm, bname_y, bname)
 
-                underline_y = bname_y - 8*mm  # ~127mm — gold underline
+                underline_y = bname_y - 8*mm  # ~127mm - gold underline
                 c.setFillColor(GOLD)
                 c.rect(14*mm, underline_y, 26*mm, 2.5, fill=1, stroke=0)
 
-                period_y = underline_y - 13*mm  # ~114mm — period text
+                period_y = underline_y - 13*mm  # ~114mm - period text
                 c.setFillColor(colors.HexColor('#9BB5D4'))
                 c.setFont(FONT_SERIF_IT, 13)
                 c.drawString(14*mm, period_y, period)
 
-                currency_y = period_y - 11*mm   # ~103mm — currency line
+                currency_y = period_y - 11*mm   # ~103mm - currency line
                 c.setFillColor(colors.HexColor('#5B7A9A'))
                 c.setFont(FONT_SANS, 8)
                 c.drawString(14*mm, currency_y, 'Currency: GBP (\xa3)')
 
-                # ── ZONE 4 — Report type badge ────────────────────────────
+                # ── ZONE 4 - Report type badge ────────────────────────────
                 period_lower = period.lower()
                 if any(q in period_lower for q in ['q1','q2','q3','q4','quarter']):
                     badge_txt = 'QUARTERLY REPORT'
@@ -664,7 +682,7 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                 c.setFont(FONT_SANS_BOLD, 5.5)
                 c.drawCentredString(14*mm + badge_w/2, badge_y + 2*mm, badge_txt)
 
-                # ── ZONE 5 — CONFIDENTIAL badge ───────────────────────────
+                # ── ZONE 5 - CONFIDENTIAL badge ───────────────────────────
                 conf_y = badge_y - 20*mm        # ~66mm
                 c.setFillColor(GOLD)
                 c.roundRect(14*mm, conf_y, 30*mm, 7*mm, 2*mm, fill=1, stroke=0)
@@ -672,7 +690,7 @@ def cover_page_elements(d, C_PRIMARY, prepared_by, is_wl, wl_logo, wl_tagline, r
                 c.setFont(FONT_SANS_BOLD, 6)
                 c.drawCentredString(14*mm + 15*mm, conf_y + 2.5*mm, 'CONFIDENTIAL')
 
-                # ── ZONE 6 — Bottom rule & ref ────────────────────────────
+                # ── ZONE 6 - Bottom rule & ref ────────────────────────────
                 c.setStrokeColor(colors.Color(14/255, 138/255, 122/255, 0.3))
                 c.setLineWidth(0.5)
                 c.line(0, 30*mm, pw, 30*mm)
@@ -717,7 +735,7 @@ def glossary_section(C_ACCENT, active_terms=None):
         core_names = {'Revenue', 'Gross Profit', 'Gross Margin', 'Net Profit', 'Net Margin'}
         all_terms = [
             ('Revenue', 'Total income from sales of goods or services before any costs are deducted.'),
-            ('Cost of Goods Sold (COGS)', 'Direct costs tied to production — materials, direct labour, packaging.'),
+            ('Cost of Goods Sold (COGS)', 'Direct costs tied to production - materials, direct labour, packaging.'),
             ('Gross Profit', 'Revenue minus COGS. Profitability before operating expenses.'),
             ('Gross Margin', 'Gross Profit as a percentage of Revenue. Indicates production efficiency.'),
             ('Operating Expenses (OpEx)', 'Costs of running the business not directly tied to production: rent, salaries, marketing, software.'),
@@ -758,7 +776,7 @@ def glossary_section(C_ACCENT, active_terms=None):
         return None
 
 def health_kpi_card(score):
-    """Health score as a KPI card — coloured to match severity."""
+    """Health score as a KPI card - coloured to match severity."""
     try:
         sv = clean(score)
         if sv is None: return None
@@ -814,7 +832,7 @@ def health_score_section(score, C_ACCENT):
         filled     = score_val / 10
         fill_steps = int(steps * filled)
 
-        # Gray background arc (pi → 2pi = left, down, right)
+        # Gray background arc (pi > 2pi = left, down, right)
         for i in range(steps):
             a1 = math.pi + (i/steps)*math.pi
             a2 = math.pi + ((i+1)/steps)*math.pi
@@ -830,14 +848,14 @@ def health_score_section(score, C_ACCENT):
             x2 = cx + r*math.cos(a2); y2 = cy + r*math.sin(a2)
             dw.add(Line(x1,y1,x2,y2, strokeColor=fill_col, strokeWidth=stroke_w, strokeLineCap=1))
 
-        # Needle — thin line with a clean circle pivot
+        # Needle - thin line with a clean circle pivot
         needle_angle = math.pi + filled*math.pi
         nx = cx + (r-6*mm)*math.cos(needle_angle)
         ny = cy + (r-6*mm)*math.sin(needle_angle)
         dw.add(Line(cx, cy, nx, ny, strokeColor=NAVY, strokeWidth=1.5, strokeLineCap=1))
         dw.add(Rect(cx-3, cy-3, 6, 6, fillColor=NAVY, strokeColor=WHITE, strokeWidth=1))
 
-        # Score value only — no label inside the wheel
+        # Score value only - no label inside the wheel
         dw.add(String(cx, cy+5*mm, f'{score_val:.0f}/10',
                      fontSize=20, fillColor=fill_col, textAnchor='middle', fontName=FONT_SERIF_BOLD))
 
@@ -858,7 +876,7 @@ def traffic_light_dashboard(d, C_ACCENT, period_revs=None):
             t = Table([
                 [Paragraph(name, name_s)],
                 [Paragraph(value_str, val_s)],
-                [Paragraph(f'● {status}', st_s)],
+                [Paragraph(f'* {status}', st_s)],
             ], colWidths=[cw])
             t.setStyle(TableStyle([
                 ('BOX',          (0,0),(-1,-1), 0.5,  BORDER),
@@ -879,13 +897,13 @@ def traffic_light_dashboard(d, C_ACCENT, period_revs=None):
             if len(pr) >= 2 and pr[0]:
                 pct = (pr[-1] - pr[0]) / abs(pr[0]) * 100
                 if pct >= 5:
-                    cards.append(tl_card('Revenue Trend', f'▲ {abs(pct):.1f}%', 'Growing', GREEN_TEXT))
+                    cards.append(tl_card('Revenue Trend', f'(up) {abs(pct):.1f}%', 'Growing', GREEN_TEXT))
                 elif pct <= -5:
-                    cards.append(tl_card('Revenue Trend', f'▼ {abs(pct):.1f}%', 'Declining', RED_TEXT))
+                    cards.append(tl_card('Revenue Trend', f'(dn) {abs(pct):.1f}%', 'Declining', RED_TEXT))
                 else:
-                    cards.append(tl_card('Revenue Trend', f'≈ {pct:+.1f}%', 'Stable', AMBER_TEXT))
+                    cards.append(tl_card('Revenue Trend', f'~ {pct:+.1f}%', 'Stable', AMBER_TEXT))
 
-        # Gross Margin vs 60% benchmark — canonical value is always 0-100 scale
+        # Gross Margin vs 60% benchmark - canonical value is always 0-100 scale
         gm = clean(d.get('gross_margin'))
         if gm is not None:
             if gm >= 60:
@@ -895,7 +913,7 @@ def traffic_light_dashboard(d, C_ACCENT, period_revs=None):
             else:
                 cards.append(tl_card('Gross Margin', _fmtp100(gm), 'Low', RED_TEXT))
 
-        # Net Margin vs 10% benchmark — canonical value is always 0-100 scale
+        # Net Margin vs 10% benchmark - canonical value is always 0-100 scale
         nm = clean(d.get('net_margin'))
         if nm is not None:
             if nm >= 10:
@@ -984,7 +1002,7 @@ def management_summary_box(d, C_ACCENT):
         bul_s = s('msb', fontName=FONT_SANS, fontSize=8.5, textColor=DARK, leading=13)
         rows = [[Paragraph('KEY TAKEAWAYS', hdr_s)]]
         for b in bullets:
-            rows.append([Paragraph(f'→  {b}', bul_s)])
+            rows.append([Paragraph(f'>  {sanitise_text(b)}', bul_s)])
         t = Table(rows, colWidths=[175*mm])
         style = [
             ('BACKGROUND',    (0,0),(-1,0),  NAVY),
@@ -1018,14 +1036,14 @@ def since_last_period_banner(d, C_ACCENT):
                 cv2 = cv if cv > 1 else cv * 100
                 pv2 = pv if pv > 1 else pv * 100
                 diff = cv2 - pv2
-                arrow = '▲' if diff >= 0 else '▼'
+                arrow = '(up)' if diff >= 0 else '(dn)'
                 col = GREEN_TEXT if diff >= 0 else RED_TEXT
                 return f'{arrow} {abs(diff):.1f}pp', col
             else:
                 if pv == 0:
                     return None, GRAY
                 pct = (cv - pv) / abs(pv) * 100
-                arrow = '▲' if pct >= 0 else '▼'
+                arrow = '(up)' if pct >= 0 else '(dn)'
                 col = GREEN_TEXT if pct >= 0 else RED_TEXT
                 return f'{arrow} {abs(pct):.1f}%', col
 
@@ -1040,7 +1058,7 @@ def since_last_period_banner(d, C_ACCENT):
         cw = 175*mm / 3
 
         def metric_cell(label, val_str, col):
-            vs = val_str or '—'
+            vs = val_str or '-'
             val_s = s(f'sv{label}', fontName=FONT_SANS_BOLD, fontSize=12, textColor=col, leading=15, alignment=TA_CENTER)
             ct = Table([[Paragraph(label, lbl_s)], [Paragraph(vs, val_s)]], colWidths=[cw])
             ct.setStyle(TableStyle([
@@ -1098,7 +1116,7 @@ def recommendations_elements(recommendations, C_ACCENT):
             txt_s = s(f'rt{i}', fontName=FONT_SANS, fontSize=8.5, textColor=DARK, leading=13)
             row = Table([[
                 Paragraph(str(i), num_s),
-                Paragraph(str(rec), txt_s),
+                Paragraph(sanitise_text(str(rec)), txt_s),
             ]], colWidths=[12*mm, 163*mm])
             row.setStyle(TableStyle([
                 ('VALIGN',(0,0),(-1,-1),'TOP'),
@@ -1178,7 +1196,7 @@ def cash_flow_section(d, C_ACCENT, ncols=1):
             if v is not None:
                 display = fmt(abs(v)) if v >= 0 else f'({fmt(abs(v))})'
             else:
-                display = '—'
+                display = '-'
             return [
                 Paragraph(prefix+label, s(f'cfl{label}', fontName=FONT_SANS, fontSize=8, textColor=DARK, leading=12)),
                 Paragraph(display,
@@ -1195,7 +1213,7 @@ def cash_flow_section(d, C_ACCENT, ncols=1):
 
         net_row = [
             Paragraph('Net Cash Movement', s('cfn', fontName=FONT_SANS_BOLD, fontSize=9, textColor=NAVY, leading=13)),
-            Paragraph(fmt(net) if net is not None else '—',
+            Paragraph(fmt(net) if net is not None else '-',
                      s('cfnv', fontName=FONT_SERIF_BOLD, fontSize=9,
                        textColor=GREEN_TEXT if (net or 0) >= 0 else RED_TEXT,
                        leading=13, alignment=TA_RIGHT)),
@@ -1274,7 +1292,7 @@ def balance_sheet_section(d, C_ACCENT):
                    fontSize=8, textColor=NAVY if bold else DARK, leading=12)
             vs = s(f'bsv{label}', fontName=FONT_SANS_BOLD if bold else FONT_SANS,
                    fontSize=8, textColor=NAVY if bold else DARK, leading=12, alignment=TA_RIGHT)
-            rows.append([Paragraph(label, ls), Paragraph(fmt(val) if val is not None else '—', vs)])
+            rows.append([Paragraph(label, ls), Paragraph(fmt(val) if val is not None else '-', vs)])
 
         if curr_a  is not None: bs_row('Current Assets', curr_a)
         if assets  is not None: bs_row('Total Assets', assets, bold=True)
@@ -1344,8 +1362,8 @@ def goals_section(goals_raw, d, C_ACCENT):
                                               textColor=col, alignment=TA_RIGHT, leading=11))
             rows.append([
                 Paragraph(label, ST_TD_L),
-                Paragraph(fv(target) if target is not None else '—', ST_TD),
-                Paragraph(fv(actual) if actual is not None else '—', ST_TD),
+                Paragraph(fv(target) if target is not None else '-', ST_TD),
+                Paragraph(fv(actual) if actual is not None else '-', ST_TD),
                 status_para,
             ])
 
@@ -1370,7 +1388,7 @@ def accountant_notes_element(notes, C_ACCENT):
         if not notes or str(notes).strip().upper() in ('NA','N/A','NONE',''): return None
         note_s = s('an', fontName=FONT_SANS, fontSize=9, textColor=DARK, leading=14)
         t = Table([
-            [Paragraph(str(notes), note_s)],
+            [Paragraph(sanitise_text(str(notes)), note_s)],
         ], colWidths=[175*mm])
         t.setStyle(TableStyle([
             ('BOX',(0,0),(-1,-1),1,C_ACCENT),
@@ -1457,7 +1475,7 @@ def key_wins_section(flag_lines, C_ACCENT):
         win_s = s('kwb', fontName=FONT_SANS, fontSize=8.5, textColor=DARK, leading=13)
         rows  = [[Paragraph('KEY WINS THIS PERIOD', hdr_s)]]
         for w in wins:
-            rows.append([Paragraph(f'✓  <b>{w["title"]}</b>  — {w["body"]}', win_s)])
+            rows.append([Paragraph(f'+  <b>{sanitise_text(w["title"])}</b>  - {sanitise_text(w["body"])}', win_s)])
         t = Table(rows, colWidths=[175*mm])
         style = [
             ('BACKGROUND',   (0,0),(-1,0),  GREEN_TEXT),
@@ -1529,7 +1547,7 @@ def assumptions_section(C_ACCENT):
         text = (
             'This report is based solely on the financial data provided and has not been independently verified. '
             'Forecasts are estimates based on historical trends and should not be relied upon as guarantees of '
-            'future performance. Corporation tax estimates are indicative only — consult your accountant '
+            'future performance. Corporation tax estimates are indicative only - consult your accountant '
             'for exact liability. All figures are presented in GBP and are unaudited unless otherwise stated.'
         )
         t = Table([[Paragraph(text, s('asn', fontSize=8, textColor=GRAY, leading=13))]], colWidths=[175*mm])
@@ -1576,11 +1594,11 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
 
     def item_row(item, bold=False, indent=True, lbl_override=None):
         vals = item.get('values', [])
-        row = [lbl_override if lbl_override is not None else label(item.get('label','—'), indent=indent, bold=bold)]
+        row = [lbl_override if lbl_override is not None else label(item.get('label','-'), indent=indent, bold=bold)]
         for i in range(ncols):
             v = vals[i] if i < len(vals) else None
             if bold and not has_val(v):
-                row.append(Paragraph('—', ST_BOLD_R if bold else ST_TD))
+                row.append(Paragraph('-', ST_BOLD_R if bold else ST_TD))
             else:
                 row.append(money(v, bold))
         _vsum    = sum(clean(v) or 0 for v in vals) if vals else 0
@@ -1592,7 +1610,7 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
         if total_v is not None and ncols > 0:
             row.append(money(total_v / ncols, bold))
         else:
-            row.append(Paragraph('—', ST_BOLD_R if bold else ST_TD))
+            row.append(Paragraph('-', ST_BOLD_R if bold else ST_TD))
         return row
 
     # ── Period values: always derived from items, never from d scalars ───────
@@ -1633,7 +1651,7 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
         gp = {'label':'GROSS PROFIT','values':gp_pvs,'total':gp_total}
         rows.append(item_row(gp, bold=True, indent=False)); teal_rows.append(len(rows)-1)
         if has_val(d.get('gross_margin')):
-            rows.append([label('Gross Margin %', sub=True)] + [td('—')]*ncols + [td(_fmtp100(d.get('gross_margin')))] + [td('—')])
+            rows.append([label('Gross Margin %', sub=True)] + [td('-')]*ncols + [td(_fmtp100(d.get('gross_margin')))] + [td('-')])
         rows.append(blank()); blank_rows.append(len(rows)-1)
 
     if opex_items or has_val(d.get('total_opex')):
@@ -1647,7 +1665,7 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
         teal_rows.append(len(rows)-1)
         if opex_tv is not None and total_rv is not None and total_rv != 0:
             opex_pct = opex_tv / total_rv   # decimal (fmtp handles 0-1 scale)
-            rows.append([label('OpEx % of Revenue', sub=True)] + [td('—')]*ncols + [td(fmtp(opex_pct))] + [td('—')])
+            rows.append([label('OpEx % of Revenue', sub=True)] + [td('-')]*ncols + [td(fmtp(opex_pct))] + [td('-')])
         rows.append(blank()); blank_rows.append(len(rows)-1)
 
     np_total = d.get('net_profit') or (sum(np_pvs) if np_pvs else None)
@@ -1660,8 +1678,8 @@ def pl_table(d, periods, periods_keys, revenue_items, cogs_items, opex_items, pe
         for i in range(ncols):
             _r = rev_pvs[i] if i < len(rev_pvs) else 0
             _n = np_pvs[i]  if i < len(np_pvs)  else 0
-            nm_pvs.append(fmtp(_n / _r) if _r > 0 else '—')   # fmtp handles 0-1 decimal
-        rows.append([label('Net Margin %', sub=True)] + [td(x) for x in nm_pvs] + [td(_fmtp100(d.get('net_margin')))] + [td('—')])
+            nm_pvs.append(fmtp(_n / _r) if _r > 0 else '-')   # fmtp handles 0-1 decimal
+        rows.append([label('Net Margin %', sub=True)] + [td(x) for x in nm_pvs] + [td(_fmtp100(d.get('net_margin')))] + [td('-')])
 
     # Data sources footnote
     period_labels = ', '.join(periods_full if periods_full else periods)
@@ -1700,7 +1718,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
     def th(txt, right=True): return Paragraph(txt, ST_TH if right else ST_TH_L)
     def td(txt, right=True): return Paragraph(str(txt), ST_TD if right else ST_TD_L)
     def money(v, bold=False):
-        display = fmt(v) if has_val(v) else '—'
+        display = fmt(v) if has_val(v) else '-'
         return Paragraph(display, ST_BOLD_R if bold else ST_TD)
     def pct_change(curr, prev, bold=False):
         try:
@@ -1708,11 +1726,11 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
             if cv is not None and pv is not None and pv!=0:
                 ch=((cv-pv)/abs(pv))*100
                 col = GREEN_TEXT if ch>=0 else RED_TEXT
-                txt = f"{'▲' if ch>=0 else '▼'} {abs(ch):.1f}%"
+                txt = f"{'(up)' if ch>=0 else '(dn)'} {abs(ch):.1f}%"
                 st = s('chg',fontName=FONT_SANS_BOLD if bold else FONT_SANS,fontSize=7.5,textColor=col,alignment=TA_RIGHT,leading=11)
                 return Paragraph(txt,st)
         except: pass
-        return Paragraph('—',ST_TD)
+        return Paragraph('-',ST_TD)
     def label(txt, indent=False, bold=False, sub=False):
         p='    ' if indent else ''
         st=ST_BOLD if bold else (s('sub',fontSize=7.5,textColor=GRAY,leading=11) if sub else ST_TD_L)
@@ -1756,11 +1774,11 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
 
     def item_row(item, prev_items, bold=False, indent=True):
         vals = item.get('values',[])
-        lbl_txt = item.get('label','—')
+        lbl_txt = item.get('label','-')
         prev_it = get_prev_item(prev_items, lbl_txt)
         is_new  = not bold and prev_it is None
 
-        # Build label cell — append ★ New badge for new items
+        # Build label cell - append * New badge for new items
         p_prefix = '    ' if indent else ''
         if is_new:
             lbl_cell = Paragraph(
@@ -1774,7 +1792,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         for i in range(ncols):
             v = vals[i] if i<len(vals) else None
             if bold and not has_val(v):
-                row.append(Paragraph('—', ST_BOLD_R if bold else ST_TD))
+                row.append(Paragraph('-', ST_BOLD_R if bold else ST_TD))
             else:
                 row.append(money(v, bold))
         curr_total = item.get('total')
@@ -1791,10 +1809,10 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
             if not any(ci.get('label','').lower() == pit.get('label','').lower()
                        for ci in curr_items):
                 row = [Paragraph('    ' + pit.get('label','') + ' (Removed)', gray_s)]
-                for _ in range(ncols): row.append(Paragraph('—', gray_v))
-                row.append(Paragraph('—', gray_v))
-                row.append(Paragraph(fmt(pit.get('total')) if has_val(pit.get('total')) else '—', gray_v))
-                row.append(Paragraph('▼ Removed', removed_s))
+                for _ in range(ncols): row.append(Paragraph('-', gray_v))
+                row.append(Paragraph('-', gray_v))
+                row.append(Paragraph(fmt(pit.get('total')) if has_val(pit.get('total')) else '-', gray_v))
+                row.append(Paragraph('(dn) Removed', removed_s))
                 result.append(row)
         return result
 
@@ -1840,7 +1858,7 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
         rows.append([label('GROSS PROFIT',bold=True)]+[money(c_gp_pvs[i] if i < len(c_gp_pvs) else None,True) for i in range(ncols)]+[money(gp_curr,True),money(gp_prev,True),pct_change(gp_curr,gp_prev,True)])
         teal_rows.append(len(rows)-1)
         if has_val(d.get('gross_margin')):
-            rows.append([label('Gross Margin %',sub=True)]+['—']*ncols+[td(_fmtp100(d.get('gross_margin'))),td(_fmtp100(d.get('prev_gross_margin'))),td('—')])
+            rows.append([label('Gross Margin %',sub=True)]+['-']*ncols+[td(_fmtp100(d.get('gross_margin'))),td(_fmtp100(d.get('prev_gross_margin'))),td('-')])
         rows.append(blank()); blank_rows.append(len(rows)-1)
 
     if opex_items or has_val(d.get('total_opex')):
@@ -1861,9 +1879,9 @@ def comparison_pl_table(d, periods, periods_keys, revenue_items, cogs_items, ope
     rows.append(np_row)
     net_idx=len(rows)-1
     if has_val(d.get('net_margin')):
-        c_nm_pvs = [fmtp(c_np_pvs[i] / c_rev_pvs[i]) if i < len(c_rev_pvs) and c_rev_pvs[i] > 0 else '—'
+        c_nm_pvs = [fmtp(c_np_pvs[i] / c_rev_pvs[i]) if i < len(c_rev_pvs) and c_rev_pvs[i] > 0 else '-'
                     for i in range(ncols)]   # fmtp handles 0-1 decimal
-        rows.append([label('Net Margin %',sub=True)]+[td(x) for x in c_nm_pvs]+[td(_fmtp100(d.get('net_margin'))),td(_fmtp100(d.get('prev_net_margin'))),td('—')])
+        rows.append([label('Net Margin %',sub=True)]+[td(x) for x in c_nm_pvs]+[td(_fmtp100(d.get('net_margin'))),td(_fmtp100(d.get('prev_net_margin'))),td('-')])
 
     # Data sources footnote
     ncols_total = ncols + 3
@@ -1955,11 +1973,11 @@ def comparison_executive_box(d, C_ACCENT):
         if metrics_down == 0 and metrics_up > 0:
             verdict = "Overall verdict: performance improved across all tracked metrics."
         elif metrics_up > metrics_down:
-            verdict = "Overall verdict: positive period — the majority of key metrics improved."
+            verdict = "Overall verdict: positive period - the majority of key metrics improved."
         elif metrics_down > metrics_up:
             verdict = "Overall verdict: performance declined across most key metrics; management review recommended."
         else:
-            verdict = "Overall verdict: mixed performance — gains in some areas offset by weakness in others."
+            verdict = "Overall verdict: mixed performance - gains in some areas offset by weakness in others."
         parts.append(verdict)
 
         if not parts: return None
@@ -1989,26 +2007,26 @@ def comparison_summary_box(d, C_ACCENT):
 
         def prev_cell(v, is_pct=False, bold=False):
             fn = FONT_SANS_BOLD if bold else FONT_SANS
-            disp = (fmtp if is_pct else fmt)(v) if has_val(v) else '—'
+            disp = (fmtp if is_pct else fmt)(v) if has_val(v) else '-'
             return Paragraph(disp, s(f'csbp_{id(v)}', fontName=fn, fontSize=8,
                                      textColor=DARK, leading=12, alignment=TA_RIGHT))
 
         def curr_cell(curr_v, prev_v, is_pct=False, bold=False):
             cv = clean(curr_v); pv = clean(prev_v)
             fn = FONT_SANS_BOLD if bold else FONT_SANS
-            disp = (_fmtp100(cv) if is_pct else fmt(cv)) if cv is not None else '—'
+            disp = (_fmtp100(cv) if is_pct else fmt(cv)) if cv is not None else '-'
             if cv is not None and pv is not None:
                 if is_pct:
                     # Normalise both to 0-100 scale before computing pp change
                     cv2 = cv if cv > 1 else cv * 100
                     pv2 = pv if pv > 1 else pv * 100
                     diff = cv2 - pv2
-                    arrow = '▲' if diff >= 0 else '▼'
+                    arrow = '(up)' if diff >= 0 else '(dn)'
                     col = GREEN_TEXT if diff >= 0 else RED_TEXT
                     disp = f"{disp}  {arrow}{abs(diff):.1f}pp"
                 elif pv != 0:
                     chg = ((cv - pv) / abs(pv)) * 100
-                    arrow = '▲' if chg >= 0 else '▼'
+                    arrow = '(up)' if chg >= 0 else '(dn)'
                     col = GREEN_TEXT if chg >= 0 else RED_TEXT
                     disp = f"{disp}  {arrow}{abs(chg):.1f}%"
                 else:
@@ -2081,11 +2099,11 @@ def margin_comparison_table(d, C_ACCENT):
 
         def chg_cells(curr_v, prev_v, lower_is_better=False):
             if curr_v is None or prev_v is None:
-                return Paragraph('—', ST_TD), Paragraph('—', ST_TD)
+                return Paragraph('-', ST_TD), Paragraph('-', ST_TD)
             chg = curr_v - prev_v
             improved = (chg < 0) if lower_is_better else (chg >= 0)
             col = GREEN_TEXT if improved else RED_TEXT
-            arrow = '▲' if chg >= 0 else '▼'
+            arrow = '(up)' if chg >= 0 else '(dn)'
             chg_s  = s(f'mct_{id(curr_v)}', fontName=FONT_SANS_BOLD, fontSize=8,
                        textColor=col, alignment=TA_RIGHT, leading=11)
             trend_s = s(f'mcd_{id(curr_v)}', fontName=FONT_SANS_BOLD, fontSize=10,
@@ -2099,8 +2117,8 @@ def margin_comparison_table(d, C_ACCENT):
         def mrow(lbl, prev_v, curr_v, lib=False):
             cp, tp = chg_cells(curr_v, prev_v, lib)
             return [Paragraph(lbl, ST_TD_L),
-                    Paragraph(_fmtp100(prev_v) if prev_v is not None else '—', ST_TD),
-                    Paragraph(_fmtp100(curr_v) if curr_v is not None else '—', ST_TD),
+                    Paragraph(_fmtp100(prev_v) if prev_v is not None else '-', ST_TD),
+                    Paragraph(_fmtp100(curr_v) if curr_v is not None else '-', ST_TD),
                     cp, tp]
 
         rows = [hdr]
@@ -2284,7 +2302,7 @@ def report_card_section(d, C_ACCENT):
             else:           g, col, exp = 'F', RED_TEXT,   f'{pct:.0f}% decline'
             cards.append(grade_card('Revenue Growth', g, exp, col))
 
-        # Gross Margin Quality — canonical gross_margin is always 0-100 scale
+        # Gross Margin Quality - canonical gross_margin is always 0-100 scale
         gm = clean(d.get('gross_margin'))
         if gm is not None:
             if   gm > 70: g, col, exp = 'A', GREEN_TEXT, f'{gm:.0f}% margin'
@@ -2294,7 +2312,7 @@ def report_card_section(d, C_ACCENT):
             else:         g, col, exp = 'F', RED_TEXT,   f'{gm:.0f}% margin'
             cards.append(grade_card('Gross Margin', g, exp, col))
 
-        # Cost Control — canonical_opex / canonical_revenue * 100
+        # Cost Control - canonical_opex / canonical_revenue * 100
         opex_v = clean(d.get('total_opex'))
         rev_v  = clean(d.get('total_revenue'))
         if opex_v is not None and rev_v and rev_v > 0:
@@ -2306,7 +2324,7 @@ def report_card_section(d, C_ACCENT):
             else:             g, col, exp = 'F', RED_TEXT,   f'{op_pct:.0f}% of rev'
             cards.append(grade_card('Cost Control', g, exp, col))
 
-        # Net Profitability — canonical_net_margin is always 0-100 scale
+        # Net Profitability - canonical_net_margin is always 0-100 scale
         nm = clean(d.get('net_margin'))
         if nm is not None:
             if   nm >  25: g, col, exp = 'A', GREEN_TEXT, f'{nm:.0f}% margin'
@@ -2379,11 +2397,11 @@ def peer_comparison_section(d, C_ACCENT):
         def _status(actual, benchmark):
             diff = actual - benchmark
             if diff >= 0:
-                return GREEN_TEXT, f'▲ {abs(diff):.1f}pp above'
+                return GREEN_TEXT, f'(up) {abs(diff):.1f}pp above'
             elif diff >= -5:
-                return AMBER_TEXT, f'▼ {abs(diff):.1f}pp below'
+                return AMBER_TEXT, f'(dn) {abs(diff):.1f}pp below'
             else:
-                return RED_TEXT,   f'▼ {abs(diff):.1f}pp below'
+                return RED_TEXT,   f'(dn) {abs(diff):.1f}pp below'
 
         hdr  = [Paragraph('Metric', ST_TH_L), Paragraph('Your Business', ST_TH), Paragraph('Industry Benchmark', ST_TH)]
         rows = [hdr]
@@ -2460,7 +2478,7 @@ def next_90_days_section(d, C_ACCENT):
             txt_s = s(f'nd{i}txt', fontName=FONT_SANS, fontSize=8.5, textColor=DARK, leading=13)
             row = Table([[
                 Paragraph(month_lbl, num_s),
-                Paragraph(action, txt_s),
+                Paragraph(sanitise_text(action), txt_s),
             ]], colWidths=[14*mm, 161*mm])
             row.setStyle(TableStyle([
                 ('VALIGN',       (0,0),(-1,-1), 'TOP'),
@@ -2659,7 +2677,7 @@ def _canonical_pipeline(d):
     failures   = []
     warnings   = []
 
-    # Canonical totals — explicit empty-list guard so an empty category returns 0, not None
+    # Canonical totals - explicit empty-list guard so an empty category returns 0, not None
     canonical_revenue = sum(clean(it.get('total')) or 0 for it in revenue_items) if revenue_items else 0
     canonical_cogs    = sum(clean(it.get('total')) or 0 for it in cogs_items)    if cogs_items    else 0
     canonical_opex    = sum(clean(it.get('total')) or 0 for it in opex_items)    if opex_items    else 0
@@ -2670,7 +2688,7 @@ def _canonical_pipeline(d):
     if _cr == 0:
         canonical_gross_margin = 0
         canonical_net_margin   = 0
-        warnings.append('Warning: Revenue is zero — margins are set to 0 (not calculable from zero revenue).')
+        warnings.append('Warning: Revenue is zero - margins are set to 0 (not calculable from zero revenue).')
     elif _cr is not None and _cr != 0:
         canonical_gross_margin = (_cr - _cc) / _cr * 100
         canonical_net_margin   = (_cr - _cc - _co) / _cr * 100
@@ -2693,7 +2711,7 @@ def _canonical_pipeline(d):
             _pv_c = clean(_pv)
             if _pv_c is not None and _pv_c < 0:
                 _plbl = periods_full[_pi] if _pi < len(periods_full) else f'period {_pi+1}'
-                warnings.append(f'Warning: {_chk_lbl} has a negative value ({fmt(_pv_c)}) in {_plbl} — verify this is intentional (e.g. refund or credit) and not a data entry error.')
+                warnings.append(f'Warning: {_chk_lbl} has a negative value ({fmt(_pv_c)}) in {_plbl} - verify this is intentional (e.g. refund or credit) and not a data entry error.')
 
     for i, p in enumerate(periods_full):
         pv_rev  = sum(clean(it.get('values', [])[i]) or 0 for it in revenue_items if i < len(it.get('values', [])))
@@ -2703,7 +2721,7 @@ def _canonical_pipeline(d):
         pv_np   = pv_gp - pv_opex
         pv_nm   = (pv_np / pv_rev * 100) if pv_rev != 0 else 0
         if pv_rev < 0:
-            warnings.append(f'Warning: revenue was negative in {p} ({fmt(pv_rev)}) — this may indicate refunds or credit adjustments exceeding sales for the period.')
+            warnings.append(f'Warning: revenue was negative in {p} ({fmt(pv_rev)}) - this may indicate refunds or credit adjustments exceeding sales for the period.')
         per_period[p] = {'revenue': pv_rev, 'cogs': pv_cogs, 'opex': pv_opex,
                          'gross_profit': pv_gp, 'net_profit': pv_np, 'net_margin': round(pv_nm, 2)}
         # Cross-footing: period arithmetic
@@ -2734,9 +2752,9 @@ def _canonical_pipeline(d):
 
     # Fix 7: plausibility warnings
     if canonical_gross_margin is not None and canonical_gross_margin > 95:
-        warnings.append(f'Warning: Gross margin of {canonical_gross_margin:.1f}% is unusually high — verify COGS items were not omitted.')
+        warnings.append(f'Warning: Gross margin of {canonical_gross_margin:.1f}% is unusually high - verify COGS items were not omitted.')
     if canonical_net_margin is not None and canonical_net_margin > 80:
-        warnings.append(f'Warning: Net margin of {canonical_net_margin:.1f}% is unusually high — verify all expense categories were captured.')
+        warnings.append(f'Warning: Net margin of {canonical_net_margin:.1f}% is unusually high - verify all expense categories were captured.')
 
     # CSV total integrity check
     _csv_total = clean(d.get('csv_total_absolute_value'))
@@ -2771,7 +2789,7 @@ def _canonical_pipeline(d):
 def generate_canonical_narrative(d, canonical_revenue, canonical_net_profit, canonical_gross_profit,
                                   canonical_gross_margin, canonical_net_margin, canonical_cogs,
                                   canonical_opex, periods_full, per_period=None):
-    """Return narrative paragraphs built entirely from canonical values — no Claude figures."""
+    """Return narrative paragraphs built entirely from canonical values - no Claude figures."""
     bname   = str(d.get('business_name', 'The business')).strip()
     period  = str(d.get('period', '')).strip()
     n_per   = len(periods_full)
@@ -2792,7 +2810,7 @@ def generate_canonical_narrative(d, canonical_revenue, canonical_net_profit, can
     # Sentence 1
     s1 = f'{bname} delivered {tone} financial results for {period}.' if period else f'{bname} delivered {tone} financial results.'
 
-    # Sentence 2 — key figures
+    # Sentence 2 - key figures
     kf = []
     if canonical_revenue      is not None: kf.append(f'total revenue of {fmt(canonical_revenue)}')
     if canonical_gross_margin is not None: kf.append(f'a gross margin of {canonical_gross_margin:.1f}%')
@@ -2805,7 +2823,7 @@ def generate_canonical_narrative(d, canonical_revenue, canonical_net_profit, can
         else:
             s2 = 'The period recorded ' + ', '.join(kf[:-1]) + f', and {kf[-1]}.'
 
-    # Sentence 3 — per-period revenue trend
+    # Sentence 3 - per-period revenue trend
     s3 = ''
     if len(per_rev_vals) >= 2:
         if per_rev_vals[-1] > per_rev_vals[0]:
@@ -2817,7 +2835,7 @@ def generate_canonical_narrative(d, canonical_revenue, canonical_net_profit, can
 
     exec_summary = ' '.join(filter(None, [s1, s2, s3]))
 
-    # key_trends — cost structure + period peak/trough
+    # key_trends - cost structure + period peak/trough
     rev = canonical_revenue or 0
     kt_parts = []
     if canonical_cogs is not None and rev > 0:
@@ -2851,7 +2869,7 @@ def generate_canonical_narrative(d, canonical_revenue, canonical_net_profit, can
     if canonical_net_margin is not None: ol_parts.append(f'net margin {canonical_net_margin:.1f}%')
     one_liner = (f'{bname}: ' + ', '.join(ol_parts) + '.') if ol_parts else ''
 
-    # industry_context_text — industry-specific benchmark commentary
+    # industry_context_text - industry-specific benchmark commentary
     _industry = str(d.get('industry', '')).strip().lower()
     # Benchmarks by sector: (gross_margin_low, gross_margin_high, net_margin_low, net_margin_high, label)
     _SECTOR_BENCHMARKS = {
@@ -2885,17 +2903,17 @@ def generate_canonical_narrative(d, canonical_revenue, canonical_net_profit, can
             + (f' for {period}.' if period else '.')
         )
         if canonical_gross_margin > _gm_hi:
-            ic_parts.append(f'Gross margin is strong relative to the {_sec_label} benchmark range of {_gm_lo}–{_gm_hi}%.')
+            ic_parts.append(f'Gross margin is strong relative to the {_sec_label} benchmark range of {_gm_lo}-{_gm_hi}%.')
         elif canonical_gross_margin >= _gm_lo:
-            ic_parts.append(f'Gross margin is within the {_sec_label} benchmark range of {_gm_lo}–{_gm_hi}%.')
+            ic_parts.append(f'Gross margin is within the {_sec_label} benchmark range of {_gm_lo}-{_gm_hi}%.')
         else:
-            ic_parts.append(f'Gross margin is below the {_sec_label} benchmark range of {_gm_lo}–{_gm_hi}% and may warrant a review of direct costs.')
+            ic_parts.append(f'Gross margin is below the {_sec_label} benchmark range of {_gm_lo}-{_gm_hi}% and may warrant a review of direct costs.')
         if canonical_net_margin > _nm_hi:
-            ic_parts.append(f'Net profitability is above the {_sec_label} sector average of {_nm_lo}–{_nm_hi}%.')
+            ic_parts.append(f'Net profitability is above the {_sec_label} sector average of {_nm_lo}-{_nm_hi}%.')
         elif canonical_net_margin >= _nm_lo:
-            ic_parts.append(f'Net margin is in line with {_sec_label} sector benchmarks of {_nm_lo}–{_nm_hi}%.')
+            ic_parts.append(f'Net margin is in line with {_sec_label} sector benchmarks of {_nm_lo}-{_nm_hi}%.')
         else:
-            ic_parts.append(f'Net margin has room for improvement relative to {_sec_label} sector benchmarks of {_nm_lo}–{_nm_hi}%.')
+            ic_parts.append(f'Net margin has room for improvement relative to {_sec_label} sector benchmarks of {_nm_lo}-{_nm_hi}%.')
     industry_context_text = ' '.join(ic_parts)
 
     return {
@@ -2922,7 +2940,7 @@ def build_report(d):
 
     # ── Opex rescue snapshot: taken before ANY processing ─────────────────────
     # Re-parse the raw opex JSON so we have a clean reference independent of
-    # everything that follows. original_opex_labels maps norm_label → item dict.
+    # everything that follows. original_opex_labels maps norm_label > item dict.
     _opex_rescue_raw = get_list(d, 'opex_items')
     original_opex_labels = {}
     for _rit in _opex_rescue_raw:
@@ -2956,13 +2974,13 @@ def build_report(d):
     report_ref = f"REF-{ref_hash}"
 
     bname = str(d.get('business_name','Report')).replace(' ','_').replace('&','and')
-    period_safe = str(d.get('period','')).split('—')[0].strip().replace(' ','_')
+    period_safe = str(d.get('period','')).split('-')[0].strip().replace(' ','_')
     firm_safe = prepared_by.replace(' ','_').replace('&','and')
     download_name = f"{firm_safe}_{bname}_{period_safe}.pdf" if is_wl else f"Pagevo_{bname}_{period_safe}.pdf"
     d['_download_name'] = download_name
 
     doc=SimpleDocTemplate(buf,pagesize=A4,leftMargin=17*mm,rightMargin=17*mm,topMargin=11*mm,bottomMargin=14*mm)
-    doc.title   = f"{d.get('business_name','Report')} — Financial Report — {d.get('period','')}"
+    doc.title   = f"{d.get('business_name','Report')} - Financial Report - {d.get('period','')}"
     doc.author  = prepared_by
     doc.subject = f"Financial Report for {d.get('business_name','')}"
 
@@ -3027,7 +3045,7 @@ def build_report(d):
     # Store original revenue labels before any reclassification (used by purity guard below)
     _orig_rev_labels = set(_norm_label(str(it.get('label', ''))) for it in revenue_items)
     # Hard misc guard: snapshot any opex items whose label contains 'misc' before the pipeline
-    # touches them — used to restore if they get dropped by dedup/hallucination guard
+    # touches them - used to restore if they get dropped by dedup/hallucination guard
     _misc_snapshot = [it for it in opex_items
                       if 'misc' in str(it.get('label', '')).lower()]
     prev_revenue_items = get_list(d, 'prev_revenue_items')
@@ -3069,7 +3087,7 @@ def build_report(d):
 
     print(f"[periods_full] {periods_full}", flush=True)
 
-    # ============ CRITICAL — DO NOT MODIFY WITHOUT FULL REGRESSION TEST AGAINST ALL 5 TEST CSVs ============
+    # ============ CRITICAL - DO NOT MODIFY WITHOUT FULL REGRESSION TEST AGAINST ALL 5 TEST CSVs ============
     # ── Sort periods chronologically, then reorder item values to match ───────
     _MONTH_ORD = {
         'january': 1, 'february': 2, 'march': 3, 'april': 4,
@@ -3143,7 +3161,7 @@ def build_report(d):
 
     # ============ END CRITICAL SECTION ============
     # COGS value validation: if a period value exceeds the item total by >10%
-    # it is almost certainly a misrouted revenue figure — zero it out
+    # it is almost certainly a misrouted revenue figure - zero it out
     for _it in cogs_items:
         _it_tot = clean(_it.get('total'))
         if _it_tot is not None and _it_tot > 0:
@@ -3159,7 +3177,7 @@ def build_report(d):
         _nl = _norm_label(_it_orig.get('label', ''))
         if _nl: _all_orig_labels.add(_nl)
 
-    # ============ CRITICAL — DO NOT MODIFY WITHOUT FULL REGRESSION TEST AGAINST ALL 5 TEST CSVs ============
+    # ============ CRITICAL - DO NOT MODIFY WITHOUT FULL REGRESSION TEST AGAINST ALL 5 TEST CSVs ============
     # ── Step 2: Deduplicate items by label (merge values element-wise) ────────
     def _dedup(items, bucket_name='items'):
         def _canon(lbl):
@@ -3194,7 +3212,7 @@ def build_report(d):
                                 for j in range(ln)]
                 nt = clean(it.get('total'))
                 new_total = (ex['total'] or 0) + (nt or 0)
-                print(f"[dedup:{bucket_name}] merged '{raw_lbl}' into '{matched_key}' → total {new_total}", flush=True)
+                print(f"[dedup:{bucket_name}] merged '{raw_lbl}' into '{matched_key}' > total {new_total}", flush=True)
                 ex['total'] = new_total
         return [merged[k] for k in seen_keys]
 
@@ -3204,8 +3222,8 @@ def build_report(d):
     opex_items    = _dedup(opex_items, 'opex')
     # ============ END CRITICAL SECTION ============
 
-    # ============ CRITICAL — DO NOT MODIFY WITHOUT FULL REGRESSION TEST AGAINST ALL 5 TEST CSVs ============
-    # ── Category blocklist enforcement (Item 2) — BEFORE reclassification ─────
+    # ============ CRITICAL - DO NOT MODIFY WITHOUT FULL REGRESSION TEST AGAINST ALL 5 TEST CSVs ============
+    # ── Category blocklist enforcement (Item 2) - BEFORE reclassification ─────
     def _label_lower(it):
         return str(it.get('label', '')).lower()
 
@@ -3242,7 +3260,7 @@ def build_report(d):
             cogs_items.append(_it)
             _cogs_norms_bl.append(_nl)
 
-    # Pass 2: move forced-opex items out of cogs only — never move revenue items to opex
+    # Pass 2: move forced-opex items out of cogs only - never move revenue items to opex
     # (a subscription/SaaS item in revenue is what customers pay YOU, not an expense)
     _new_cogs3 = []
     _forced_opex_items = []
@@ -3286,7 +3304,7 @@ def build_report(d):
         _ll = _label_lower(_it)
         _nl = _norm_label(_ll)
         if any(_labels_match(_nl, _oon) for _oon in _orig_opex_norms):
-            pass  # already classified in opex — silently remove from cogs
+            pass  # already classified in opex - silently remove from cogs
         elif any(kw in _ll for kw in _OPEX_KW):
             _bump_opex.append(_it)
         else:
@@ -3309,7 +3327,7 @@ def build_report(d):
         if any(_edit_dist(nl, ol) <= 3 for ol in _all_orig_labels):
             return True
         # Also protect reclassified items whose label contains a known classification
-        # keyword — these are genuinely typed items that may have shifted buckets
+        # keyword - these are genuinely typed items that may have shifted buckets
         _ll = str(it.get('label', '')).lower()
         return any(kw in _ll for kw in _OPEX_KW + _COGS_KW)
 
@@ -3350,7 +3368,7 @@ def build_report(d):
             _final_opex_norms.append(_mn)
             print(f"[misc guard] restored '{_mi.get('label','?')}' to opex_items", flush=True)
 
-    # ============ CRITICAL — DO NOT MODIFY WITHOUT FULL REGRESSION TEST AGAINST ALL 5 TEST CSVs ============
+    # ============ CRITICAL - DO NOT MODIFY WITHOUT FULL REGRESSION TEST AGAINST ALL 5 TEST CSVs ============
     # ── Opex rescue: restore any original opex item lost during pipeline ──────
     # Uses original_opex_labels snapshot taken at the very start of build_report.
     _final_opex_nl_set = set(_norm_label(str(it.get('label', ''))) for it in opex_items)
@@ -3388,7 +3406,7 @@ def build_report(d):
             print(f"[rescue] restored cogs '{_fresh.get('label','?')}'", flush=True)
 
     # ============ END CRITICAL SECTION ============
-    # Recalculate item totals from values — discard Claude's provided totals (Item 5)
+    # Recalculate item totals from values - discard Claude's provided totals (Item 5)
     for _it in revenue_items + cogs_items + opex_items:
         _it['total'] = sum(clean(v) or 0 for v in _it.get('values', []))
 
@@ -3398,9 +3416,9 @@ def build_report(d):
         if (it.get('total') or 0) != 0 or any((clean(v) or 0) != 0 for v in it.get('values', []))
     ]
 
-    # ============ CRITICAL — DO NOT MODIFY WITHOUT FULL REGRESSION TEST AGAINST ALL 5 TEST CSVs ============
+    # ============ CRITICAL - DO NOT MODIFY WITHOUT FULL REGRESSION TEST AGAINST ALL 5 TEST CSVs ============
     # ── Step 4: Canonical totals from item.total fields ───────────────────────
-    # Explicit empty-list guard: empty category → 0, not None (matches /validate behaviour)
+    # Explicit empty-list guard: empty category > 0, not None (matches /validate behaviour)
     canonical_revenue = sum(clean(it.get('total')) or 0 for it in revenue_items) if revenue_items else 0
     canonical_cogs    = sum(clean(it.get('total')) or 0 for it in cogs_items)    if cogs_items    else 0
     canonical_opex    = sum(clean(it.get('total')) or 0 for it in opex_items)    if opex_items    else 0
@@ -3412,7 +3430,7 @@ def build_report(d):
     if _cr == 0:
         canonical_gross_margin = 0
         canonical_net_margin   = 0
-        _zero_rev_flag = 'FLAG|Data Note|Margin not calculable — zero revenue reported for this period. Margins have been set to 0.'
+        _zero_rev_flag = 'FLAG|Data Note|Margin not calculable - zero revenue reported for this period. Margins have been set to 0.'
         _existing_flags = str(d.get('flags', ''))
         d['flags'] = _zero_rev_flag + ('FLAGSEP' + _existing_flags if _existing_flags else '')
     elif _cr != 0:
@@ -3515,7 +3533,7 @@ def build_report(d):
         _pv_nm   = (_pv_np / _pv_rev * 100) if _pv_rev != 0 else 0
         _pv_lbl  = periods_full[i] if i < len(periods_full) else k
         if _pv_rev < 0:
-            _neg_rev_flag = (f'INFO|Negative Revenue — {_pv_lbl}|Revenue was negative ({fmt(_pv_rev)}) '
+            _neg_rev_flag = (f'INFO|Negative Revenue - {_pv_lbl}|Revenue was negative ({fmt(_pv_rev)}) '
                              f'in {_pv_lbl}. This may indicate refunds or credit adjustments exceeding sales.')
             _existing_flags_nr = str(d.get('flags', ''))
             d['flags'] = _neg_rev_flag + ('FLAGSEP' + _existing_flags_nr if _existing_flags_nr else '')
@@ -3561,7 +3579,7 @@ def build_report(d):
             if _pm is not None:
                 _p_tgts.append(_pm)
         # Hyphen guard: skip £X in ranges like £X-£Y
-        _mpat = re.compile(r'£([\d,]+(?:\.\d+)?)(k)?(?!\s*[-–]\s*£)', re.IGNORECASE)
+        _mpat = re.compile(r'£([\d,]+(?:\.\d+)?)(k)?(?!\s*[--]\s*£)', re.IGNORECASE)
         _ppat = re.compile(r'(-?\d+(?:\.\d+)?)\s*%')
         def _ms(m):
             try:
@@ -3660,7 +3678,7 @@ def build_report(d):
         _qv = d.get(_qf)
         if _qv and str(_qv).upper() not in ('NA','N/A','NONE',''):
             d[_qf] = _approx_numbers(str(_qv))
-    # flags — applied per-item during flag_lines building (done below)
+    # flags - applied per-item during flag_lines building (done below)
     # key_takeaways
     if isinstance(d.get('key_takeaways'), list):
         d['key_takeaways'] = [_approx_numbers(s) for s in d.get('key_takeaways', [])]
@@ -3708,7 +3726,7 @@ def build_report(d):
         elif _fmv and isinstance(_fmv, list):
             d[_fmf] = [_fix_month_refs(str(x)) for x in _fmv]
 
-    # Step 7 removed — item totals already recalculated before Step 4 (Item 5)
+    # Step 7 removed - item totals already recalculated before Step 4 (Item 5)
 
     period_rev = [d.get('revenue_'+k) for k in periods_keys]
     opex_with_totals = sorted(
@@ -3796,7 +3814,7 @@ def build_report(d):
 
     # ── COGS narrative contradiction filter ───────────────────────────────────
     # When canonical_cogs is present, remove any generated text that claims
-    # COGS data is missing or unavailable — those statements are contradicted
+    # COGS data is missing or unavailable - those statements are contradicted
     # by the data we actually have.
     _NO_COGS_PAT = re.compile(
         r'(missing\s+cogs|no\s+cogs\s+data|limited\s+cost\s+data|cogs\s+not\s+provided|'
@@ -3928,7 +3946,7 @@ def build_report(d):
     # ── Executive Summary ─────────────────────────────────────────────────────
     story.append(KeepTogether([section_header('Executive Summary', C_ACCENT), Spacer(1,3*mm)]))
     if is_wl:
-        intro_text = f"This report has been prepared by {wl_name} for {d.get('business_name','the client')} covering the period {str(d.get('period','')).split('—')[0].strip()}. It is intended for internal management use only."
+        intro_text = f"This report has been prepared by {wl_name} for {d.get('business_name','the client')} covering the period {str(d.get('period','')).split('-')[0].strip()}. It is intended for internal management use only."
         story.append(Paragraph(intro_text, s('intro',fontSize=8.5,textColor=colors.HexColor('#6B7280'),leading=13,fontName=FONT_SANS)))
         story.append(Spacer(1,2*mm))
     if is_comparison:
@@ -3940,27 +3958,27 @@ def build_report(d):
     # Health score verdict sentence (item 8)
     if has_health:
         if health_score >= 8:
-            verdict_txt = '<b>Overall:</b> Strong period — the business is performing well across key indicators.'
+            verdict_txt = '<b>Overall:</b> Strong period - the business is performing well across key indicators.'
         elif health_score >= 5:
             verdict_txt = '<b>Overall:</b> Solid period with some areas for improvement identified.'
         else:
             verdict_txt = '<b>Overall:</b> This period requires management attention across several key metrics.'
         story.append(Paragraph(verdict_txt, s('verdict', fontName=FONT_SANS, fontSize=9, textColor=DARK, leading=13)))
         story.append(Spacer(1,2*mm))
-    # ── Executive Summary — canonical figures only ────────────────────────────
+    # ── Executive Summary - canonical figures only ────────────────────────────
     if _narr['exec_summary']:
-        story.append(Paragraph(_narr['exec_summary'],
+        story.append(Paragraph(sanitise_text(_narr['exec_summary']),
                                s('csumm', fontName=FONT_SANS_BOLD, fontSize=9.5, textColor=NAVY, leading=15)))
         story.append(Spacer(1, 3*mm))
     # Confidence indicator (item 6)
     try:
         _n_per = len([v for v in period_rev if has_val(v)]) or max(len(periods), 1)
         if _n_per >= 3:
-            _conf_txt = f'Analysis confidence: High — based on {_n_per} periods of data.'
+            _conf_txt = f'Analysis confidence: High - based on {_n_per} periods of data.'
         elif _n_per == 2:
-            _conf_txt = f'Analysis confidence: Moderate — based on {_n_per} periods of data.'
+            _conf_txt = f'Analysis confidence: Moderate - based on {_n_per} periods of data.'
         else:
-            _conf_txt = 'Analysis confidence: Low — based on single period data.'
+            _conf_txt = 'Analysis confidence: Low - based on single period data.'
         story.append(Paragraph(_conf_txt, s('conf', fontName=FONT_SERIF_IT, fontSize=7.5, textColor=GRAY, leading=11)))
     except Exception:
         pass
@@ -3969,7 +3987,7 @@ def build_report(d):
     if has_plain_summary:
         try:
             pes_box = Table(
-                [[Paragraph(plain_english_summary, s('pes', fontName=FONT_SANS, fontSize=9, textColor=colors.HexColor('#1A3A2A'), leading=14))]],
+                [[Paragraph(sanitise_text(plain_english_summary), s('pes', fontName=FONT_SANS, fontSize=9, textColor=colors.HexColor('#1A3A2A'), leading=14))]],
                 colWidths=[175*mm],
             )
             pes_box.setStyle(TableStyle([
@@ -4004,16 +4022,16 @@ def build_report(d):
         _kpi_nm   = canonical.net_margin
 
         if _kpi_np is not None and _kpi_rev is not None and _kpi_np > _kpi_rev:
-            print(f"[WARN kpi] net_profit ({_kpi_np}) > revenue ({_kpi_rev}) — displaying N/A", flush=True)
+            print(f"[WARN kpi] net_profit ({_kpi_np}) > revenue ({_kpi_rev}) - displaying N/A", flush=True)
             _kpi_np = None
         if _kpi_gm is not None and (abs(_kpi_gm) > 999 or _kpi_gm > 100 or _kpi_gm < -100):
-            print(f"[WARN kpi] gross_margin {_kpi_gm} implausible — displaying N/A", flush=True)
+            print(f"[WARN kpi] gross_margin {_kpi_gm} implausible - displaying N/A", flush=True)
             _kpi_gm = None
         if _kpi_nm is not None and _kpi_gm is not None and _kpi_nm > _kpi_gm:
-            print(f"[WARN kpi] net_margin ({_kpi_nm}) > gross_margin ({_kpi_gm}) — displaying N/A", flush=True)
+            print(f"[WARN kpi] net_margin ({_kpi_nm}) > gross_margin ({_kpi_gm}) - displaying N/A", flush=True)
             _kpi_nm = None
         if _kpi_nm is not None and abs(_kpi_nm) > 999:
-            print(f"[WARN kpi] net_margin {_kpi_nm} implausible — displaying N/A", flush=True)
+            print(f"[WARN kpi] net_margin {_kpi_nm} implausible - displaying N/A", flush=True)
             _kpi_nm = None
 
         kpi_defs = [
@@ -4100,11 +4118,11 @@ def build_report(d):
         if len(nm_vals_clean) >= 2:
             nm_diff = nm_vals_clean[-1] - nm_vals_clean[0]
             if nm_diff > 0.5:
-                mt_txt = '▲ Margins improving'; mt_col = GREEN_TEXT
+                mt_txt = '(up) Margins improving'; mt_col = GREEN_TEXT
             elif nm_diff < -0.5:
-                mt_txt = '▼ Margins declining'; mt_col = RED_TEXT
+                mt_txt = '(dn) Margins declining'; mt_col = RED_TEXT
             else:
-                mt_txt = '● Margins stable'; mt_col = GRAY
+                mt_txt = '* Margins stable'; mt_col = GRAY
             margin_trend_para = Paragraph(mt_txt, s('mtrend', fontSize=7, textColor=mt_col, leading=10))
         else:
             margin_trend_para = None
@@ -4166,7 +4184,7 @@ def build_report(d):
                             'Consider whether seasonal cash flow planning strategies are in place.'
                         )
                         story.append(KeepTogether([
-                            flag_card('★', 'Seasonal Variation Detected', _seas_body, 'INFO'),
+                            flag_card('*', 'Seasonal Variation Detected', _seas_body, 'INFO'),
                             Spacer(1, 2*mm),
                         ]))
         except Exception:
@@ -4352,11 +4370,11 @@ def build_report(d):
     if has_industry:
         story.append(KeepTogether([
             section_header('Industry Context', C_ACCENT), Spacer(1,3*mm),
-            Paragraph(industry_context, ST_BODY), Spacer(1,3*mm),
+            Paragraph(sanitise_text(industry_context), ST_BODY), Spacer(1,3*mm),
         ]))
 
     # ── Key Trends ────────────────────────────────────────────────────────────
-    _kt_text = _narr.get('key_trends') or _narr.get('analysis_text', '')
+    _kt_text = sanitise_text(_narr.get('key_trends') or _narr.get('analysis_text', ''))
     if _kt_text:
         story.append(KeepTogether([
             section_header('Key Trends & Analysis', C_ACCENT), Spacer(1,3*mm),
@@ -4477,7 +4495,7 @@ def build_report(d):
     if d.get('outlook'):
         story.append(KeepTogether([
             section_header('Outlook', C_ACCENT),Spacer(1,3*mm),
-            Paragraph(str(d.get('outlook')),ST_BODY),
+            Paragraph(sanitise_text(str(d.get('outlook', ''))),ST_BODY),
             Spacer(1,3*mm),
         ]))
 
@@ -4516,7 +4534,7 @@ def build_report(d):
     disclaimer_row = []
     if wl_disclaimer and wl_disclaimer.upper() not in ('NA','N/A','NONE',''):
         disclaimer_row = [Paragraph(wl_disclaimer,s('disc',fontSize=7,textColor=colors.HexColor('#9CA3AF'),alignment=TA_CENTER,leading=10))]
-    period_short = str(d.get('period','')).split('—')[0].strip()
+    period_short = str(d.get('period','')).split('-')[0].strip()
     gen_date = datetime.datetime.now().strftime('%d %b %Y')
     if is_wl and contact_str:
         line1 = f"Prepared by {prepared_by}{contact_str}"
@@ -4530,7 +4548,7 @@ def build_report(d):
     ft_rows = []
     if _data_verified:
         _verified_badge = Paragraph(
-            'Data Verified ✓',
+            'Data Verified +',
             s('dv_badge', fontName=FONT_SANS, fontSize=6.5,
               textColor=colors.HexColor('#0E8A7A'), alignment=TA_CENTER, leading=9)
         )
@@ -4598,13 +4616,13 @@ def build_report(d):
 _KEY_SCHEMA = {
     "key_takeaways": (
         "A JSON array of exactly 3 strings. Each string is one punchy sentence summarising "
-        "what actually happened in the historical data this period — specific to the actual "
+        "what actually happened in the historical data this period - specific to the actual "
         "numbers, past tense, no generic advice. "
         'Example: "E-Bike rentals scaled to 26% of March revenue following a strong launch month."'
     ),
     "strategic_recommendations": (
         "A JSON array of exactly 3 strings. Each string is one specific forward-looking strategic "
-        "action the business should take based on the data. Be specific to the actual numbers — "
+        "action the business should take based on the data. Be specific to the actual numbers - "
         "not generic advice. "
         'Example: "Secure 5-10 additional e-bikes ahead of peak summer season to capitalise on the 312% March revenue surge."'
     ),
@@ -4639,7 +4657,7 @@ def generate():
         return send_file(buf, mimetype='application/pdf', as_attachment=True, download_name=dn)
     except Exception as _e:
         _detail = str(_e)[:200]
-        print(f"[ERROR /generate] Report generation failed — full traceback:\n{_tb.format_exc()}", flush=True)
+        print(f"[ERROR /generate] Report generation failed - full traceback:\n{_tb.format_exc()}", flush=True)
         return jsonify({
             'error':      'Report generation failed',
             'detail':     _detail,
