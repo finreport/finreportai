@@ -2636,10 +2636,22 @@ def _canonical_pipeline(d):
                        'software','subscriptions','repairs','maintenance','misc',
                        'professional','legal','telephone','accounting')
 
-    # Pass 1: move cogs items out of revenue
+    # Revenue protection: a label containing any of these words is income, not an
+    # outgoing cost (e.g. "raw material sales", "stock resale income", "recurring
+    # subscription software revenue"). Protected items must STAY in revenue_items
+    # and are never moved to cogs_items/opex_items regardless of other keyword
+    # matches. This runs before any reclassification below.
+    _REVENUE_PROTECT = ('revenue','sales','receipts','income','earnings')
+    def _revenue_protected(it):
+        return any(kw in _ll(it) for kw in _REVENUE_PROTECT)
+
+    # Pass 1: move cogs items out of revenue — but never a protected revenue item.
     _new_rev, _forced_cogs = [], []
     for it in revenue_items:
-        (_forced_cogs if any(kw in _ll(it) for kw in _FORCED_COGS_KW) else _new_rev).append(it)
+        if not _revenue_protected(it) and any(kw in _ll(it) for kw in _FORCED_COGS_KW):
+            _forced_cogs.append(it)
+        else:
+            _new_rev.append(it)
     revenue_items = _new_rev
     _cogs_norms = [_nl(it) for it in cogs_items]
     for it in _forced_cogs:
