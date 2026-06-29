@@ -3246,12 +3246,23 @@ def build_report(d):
                        'software','subscriptions','repairs','maintenance','misc',
                        'professional','legal','telephone','accounting')
 
-    # Pass 1: move forced-cogs items out of revenue and opex
+    # Revenue protection: a label containing any of these words is income, not an
+    # outgoing cost (e.g. "raw material sales", "stock resale income", "recurring
+    # subscription software revenue"). Protected items must STAY in revenue_items
+    # and are never moved to cogs_items/opex_items regardless of other keyword
+    # matches. This mirrors the guard in _canonical_pipeline so the rendered PDF
+    # and /validate agree.
+    _REVENUE_PROTECT = ('revenue','sales','receipts','income','earnings')
+    def _revenue_protected(it):
+        return any(kw in _label_lower(it) for kw in _REVENUE_PROTECT)
+
+    # Pass 1: move forced-cogs items out of revenue and opex - but never a
+    # protected revenue item.
     _new_rev2, _new_opex2 = [], []
     _forced_cogs_items = []
     for _it in revenue_items:
         _ll = _label_lower(_it)
-        if any(kw in _ll for kw in _FORCED_COGS_KW):
+        if not _revenue_protected(_it) and any(kw in _ll for kw in _FORCED_COGS_KW):
             _forced_cogs_items.append(_it)
         else:
             _new_rev2.append(_it)
@@ -3301,7 +3312,10 @@ def build_report(d):
     _new_rev, _bump_cogs = [], []
     for _it in revenue_items:
         _ll = _label_lower(_it)
-        (_bump_cogs if any(kw in _ll for kw in _COGS_KW) else _new_rev).append(_it)
+        if not _revenue_protected(_it) and any(kw in _ll for kw in _COGS_KW):
+            _bump_cogs.append(_it)
+        else:
+            _new_rev.append(_it)
     revenue_items = _new_rev
     # Guard: discard any reclassified item whose label already exists in Claude's cogs_items
     _orig_cogs_norms = [_norm_label(str(_it.get('label', ''))) for _it in cogs_items]
@@ -3357,7 +3371,9 @@ def build_report(d):
     for _it in revenue_items:
         _ll = _label_lower(_it)
         _nl = _norm_label(_ll)
-        if any(kw in _ll for kw in _COGS_BLOCKLIST) or _nl not in _orig_rev_labels:
+        if _revenue_protected(_it):
+            _pure_rev.append(_it)
+        elif any(kw in _ll for kw in _COGS_BLOCKLIST) or _nl not in _orig_rev_labels:
             _force_to_cogs.append(_it)
         else:
             _pure_rev.append(_it)
